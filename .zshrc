@@ -30,10 +30,11 @@ ZSH_THEME_GIT_PROMPT_CLEAN="%F{40}✔"
 function git_branch_info {
     local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     if [[ -n $branch ]]; then
-        if git diff-index --quiet HEAD -- 2>/dev/null && [[ -z $(git ls-files --others --exclude-standard 2>/dev/null) ]]; then
-            echo " %F{239}on%f %B%F{40}$branch%f%b"  # green for clean
+        local changed_files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+        if [[ $changed_files -eq 0 ]]; then
+            echo " %F{239}on%f %B%F{202}$branch%f%b"  # orange for clean
         else
-            echo " %F{239}on%f %B%F{196}$branch%f%b"  # red for dirty
+            echo " %F{239}on%f %B%F{202}$branch($changed_files)%f%b"  # orange for dirty with count
         fi
     fi
 }
