@@ -32,10 +32,8 @@ function git_branch_info {
         fi
     fi
 }
-ZSH_THEME_RUBY_PROMPT_PREFIX=" %F{239}using%F{243} ‹"
-ZSH_THEME_RUBY_PROMPT_SUFFIX="›%f"
 
-PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 %m%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info)\$(ruby_prompt_info) %F{239}at%f 󰥔%t 
+PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 %m%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
 ╰─\$(virtualenv_info)○ "
 
 
@@ -43,7 +41,7 @@ PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 %m%f %F{239}in%f %B%F{22
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
 # Path to your Oh My Zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
+# export ZSH="$HOME/.oh-my-zsh"
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
@@ -113,8 +111,8 @@ export ZSH="$HOME/.oh-my-zsh"
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git)
-plugins+=(zsh-vi-mode)
+# plugins=(git)
+# plugins+=(zsh-vi-mode)
 
 zstyle ':autocomplete:*complete*:*' insert-unambiguous yes 
 zstyle ':autocomplete:*history*:*' insert-unambiguous yes
@@ -129,7 +127,8 @@ source $HOMEBREW_PREFIX/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh
 
 zstyle ':completion:*' completer _complete _complete:-fuzzy _correct _approximate _ignored _expand
 
-source $ZSH/oh-my-zsh.sh
+# source $ZSH/oh-my-zsh.sh
+eval "$(sheldon source)"
 
 # User configuration
 
