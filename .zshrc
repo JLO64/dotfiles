@@ -8,6 +8,9 @@ DISABLE_AUTO_UPDATE="true"
 DISABLE_MAGIC_FUNCTIONS="true"
 DISABLE_COMPFIX="true"
 
+# Enable prompt substitution
+setopt PROMPT_SUBST
+
 
 # my custom zsh theme, based off of bira and fino-time
 
