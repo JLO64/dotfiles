@@ -41,7 +41,7 @@ function git_branch_info {
 ZSH_THEME_RUBY_PROMPT_PREFIX=" %F{239}using%F{243} ‹"
 ZSH_THEME_RUBY_PROMPT_SUFFIX="›%f"
 
-PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 $(box_name)%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info)\$(ruby_prompt_info) %F{239}at%f 󰥔 %* 
+PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 $(box_name)%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info)\$(ruby_prompt_info) %F{239}at%f 󰥔%t 
 ╰─\$(virtualenv_info)○ "
 
 
