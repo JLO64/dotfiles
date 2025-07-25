@@ -11,6 +11,14 @@ DISABLE_COMPFIX="true"
 # Enable prompt substitution
 setopt PROMPT_SUBST
 
+setopt HIST_EXPIRE_DUPS_FIRST
+setopt HIST_IGNORE_DUPS
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt HIST_FIND_NO_DUPS
+setopt HIST_SAVE_NO_DUPS
+HISTSIZE=100000
+SAVEHIST=100000
 
 # my custom zsh theme, based off of bira and fino-time
 
@@ -176,7 +184,7 @@ alias nvm='unalias nvm; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm $@
 #alias nvim='bat'
 
 # Old pyenv setup
-# export PYENV_ROOT="$HOME/.pyenv"
+# export PYENV_ROOT=""
 # export PATH="$PYENV_ROOT/bin:$PATH"
 # eval "$(pyenv init -)"
 
