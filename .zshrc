@@ -172,8 +172,8 @@ eval "$(sheldon source)"
 export NVM_DIR="$HOME/.nvm"
 alias nvm='unalias nvm; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm $@'
 
-alias ls='lsr'
-alias nvim='bat'
+#alias ls='lsr'
+#alias nvim='bat'
 
 # Old pyenv setup
 # export PYENV_ROOT="$HOME/.pyenv"
