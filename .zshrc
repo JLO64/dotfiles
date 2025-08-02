@@ -44,7 +44,7 @@ function git_branch_info {
     fi
 }
 
-PROMPT="╭─%F{40} %n%f %F{239}within%f %F{33}󰌢 %m%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
+PROMPT="╭─%F{40} %n%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
 ╰─\$(virtualenv_info)○ "
 
 
