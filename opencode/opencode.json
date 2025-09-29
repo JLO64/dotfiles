@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "small_model": "openrouter/openai/gpt-oss-20b",
   "disabled_providers": [
     "openai",
     "groq"
@@ -11,39 +10,39 @@
       "name": "LM Studio (local)",
       "options": {
         "baseURL": "http://127.0.0.1:1234/v1"
-      },
-      "models": {
-        "openai/gpt-oss-20b": {
-          "name": "GPT OSS 20B"
-        }
       }
     },
-    "openrouter": {
-      "models": {
-        "openai/gpt-oss-120b": {
-          "reasoning": true,
-          "options": {
-            "reasoning_effort": "high",
-            "provider": {
-              "order": [
-                "groq"
-              ],
-              "allow_fallbacks": true
-            }
-          }
-        },
-        "openai/gpt-5": {
-          "reasoning": true,
-          "options": {
-            "reasoning_effort": "high"
-          }
-        },
-        "openai/gpt-5-mini": {
-          "reasoning": true,
-          "options": {
-            "reasoning_effort": "high"
-          }
-        }
+    "openrouter": {}
+  },
+  "permission": {
+    "edit": "ask",
+    "webfetch": "allow",
+    "bash": {
+      "git status": "allow",
+      "ls *": "allow",
+      "*": "ask"
+    }
+  },
+  "agent": {
+    "analyze": {
+      "description": "Creates a plan with the user to edit code.",
+      "mode": "primary",
+      "prompt": "You are in code analyze mode.\n\nYour objective is to analyze the relevant code and respond to the user's query.",
+      "permission": {
+        "edit": "deny",
+      }
+    },
+    "build": {
+      "description": "Builds code based off of a plan and user's request.",
+      "mode": "primary",
+      "prompt": "You are in code build mode.\n\nYour task is to implement the plan that has been provided to you and edit/create the relevant files.\n\nDo not edit/create any files without the user's consent. It is best to list the files you will edit/create and ask the user's consent.\n\nEspecially, do not use any git commands without express permission."
+    },
+    "plan": {
+      "description": "Creates a plan with the user to edit code.",
+      "mode": "primary",
+      "prompt": "You are in code plan mode.\n\nStart by analyzing the relevant files for the user's request and asking the user questions to help craft a detailed plan.\n\nAsk a maximum of 5 questions per chat turn.\n\nUntil the user states that they are satisfied with the plan, you will continue to ask the user questions to refine the plan.",
+      "permission": {
+        "edit": "deny",
       }
     }
   }
