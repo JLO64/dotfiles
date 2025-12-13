@@ -44,7 +44,7 @@ function git_branch_info {
     fi
 }
 
-PROMPT="╭─%F{40} %n%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
+PROMPT="╭─%F{40} %n%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
 ╰─\$(virtualenv_info)○ "
 
 
@@ -199,7 +199,10 @@ alias pyenv='eval "$(pyenv init -)"; pyenv $@'
 # chruby ruby-3.1.3
 
 # new chruby setup
-alias chruby='source /opt/homebrew/opt/chruby/share/chruby/chruby.sh; chruby $@'
+# alias chruby='source /opt/homebrew/opt/chruby/share/chruby/chruby.sh; chruby $@'
+
+eval "$(rbenv init - zsh)"
+
 
 # The following lines have been added by Docker Desktop to enable Docker CLI completions.
 fpath=(/Users/64julianlopez/.docker/completions $fpath)
@@ -215,3 +218,44 @@ export EDITOR=nvim
 
 # uncomment following line for profiling
 # zprof
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:/Users/64julianlopez/.lmstudio/bin"
+# End of LM Studio CLI section
+
+# For uv tools to work
+export PATH="/Users/64julianlopez/.local/bin:$PATH"
+
+function git_log_formatted {
+    local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
+    local git_log_string
+    git_log_string=$(git log "$current_branch" -25 \
+        --date=format:"%m/%d/%y|%I:%M %p" \
+        --pretty=format:"%ad|%s")
+
+    echo "$git_log_string"
+}
+
+function git_summarize {
+    local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
+    local git_log_string
+    git_log_string=$(git log "$current_branch" -25 \
+        --date=format:"%m/%d/%y|%I:%M %p" \
+        --pretty=format:"%ad|%s")
+
+    local log_output
+    log_output="$git_log_string"
+    uvx llm "
+Summarize the last 25 git commits in bullet format made to the $current_branch branch.
+
+The format should be:
+(Time in AM/PM) Commit Message
+
+For each date, print one line before the entries that displays the date in MM/DD/YY format.
+Add one blank line before each date group.
+
+Here is the git log I want you to format:
+${log_output}
+" --model gpt-5-nano -o reasoning_effort "low"
+}
+
