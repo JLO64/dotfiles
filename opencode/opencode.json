@@ -1,8 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "small_model": "openrouter/openai/gpt-5-nano",
   "disabled_providers": [
-    "openai",
-    "groq"
+    "groq",
+    "openai"
   ],
   "provider": {
     "lmstudio": {
@@ -12,53 +13,77 @@
         "baseURL": "http://127.0.0.1:1234/v1"
       }
     },
-    "openrouter": {
-      "models": {
-        "GPT 5 Mini (Low Verbosity)": {
-          "id": "openai/gpt-5-mini",
-          "options": {
-            "reasoningEffort": "medium",
-            "textVerbosity": "low",
-            "reasoningSummary": "auto",
-          },
-        },
-      }
+    "openrouter": {}
+  },
+  "model": "openrouter/openai/gpt-5.1-codex-mini",
+  "formatter": {
+    "uv": {
+      "command": ["uv", "run", "ruff", "format", "$FILE"],
+      "extensions": [".py"]
+    },
+  },
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "@playwright/mcp@latest"
+      ],
+      "enabled": true
     }
+  },
+  "tools": {
+    "playwright": false
   },
   "permission": {
     "edit": "ask",
     "webfetch": "allow",
     "bash": {
       "git status": "allow",
+      "git log *": "allow",
       "ls *": "allow",
-      "*": "ask"
+      "rg *": "allow",
+      "*": "ask",
+      "python3 -m py_compile *": "allow",
+      "uv run ruff check *": "allow"
     }
   },
   "agent": {
     "analyze": {
-      "model": "GPT 5 Mini (Low Verbosity)",
       "description": "Answers the user's questions.",
       "mode": "primary",
-      "prompt": "You are in code analyze mode.\n\nYour objective is to analyze the relevant code and respond to the user's query. Do not output a large amount of text/detail and focus on being short and concise.",
+      "prompt": "You are in code analyze mode.\n\nYour objective is to analyze the relevant code and respond to the user's query. Do not output a large amount of text/detail and focus on being short and concise.behavior. ",
       "permission": {
         "edit": "deny",
       }
     },
     "build": {
-      "model": "openrouter/openai/gpt-5-codex",
       "description": "Builds code based off of a plan and user's request.",
       "mode": "primary",
-      "prompt": "You are in code build mode.\n\nYour task is to implement the plan that has been provided to you and edit/create the relevant files.\n\nDo not edit/create any files without the user's consent. It is best to list the files you will edit/create and ask the user's consent.\n\nEspecially, do not use any git commands without express permission."
+      "prompt": "You are in code build mode.\n\nYour task is to implement the plan that has been provided to you and edit/create the relevant files.\n\nDo not edit/create any files without the user's consent. It is best to list the files you will edit/create and ask the user's consent.\n\nEspecially, do not use any git commands without express permission. When writing Python code, be sure to periodicallly run both `python3 -m py_compile` and `uv run ruff check` to verify your code is error free. Additionally, if you were given a Todo list, be sure to very frequently update it. Don't just edit the Todo list once finished writing code, you should be updating it as you write code.",
+      "permission": {
+        "edit": "allow",
+      }
     },
     "plan": {
-      "model": "GPT 5 Mini (Low Verbosity)",
       "description": "Creates a plan with the user to edit code.",
       "mode": "primary",
-      "prompt": "You are in code plan mode.\n\nStart by analyzing the relevant files for the user's request and asking the user questions to help craft a detailed plan.\n\nAsk a maximum of 5 questions per chat turn.\n\nUntil the user states that they are satisfied with the plan, you will continue to ask the user questions to refine the plan.",
+      "prompt": "You are in code plan mode.\n\nStart by analyzing the relevant files for the user's request and asking the user questions to help craft a detailed plan.\n\nAsk a maximum of 5 questions per chat turn.\n\nUntil the user states that they are satisfied with the plan, you will continue to ask the user questions to refine the plan. It is ok to generate small portions of code but not the complete code, that will be left to more capable models. For the Todo lists you will make, have them have numerous steps and include details such as function/variable names within them.",
       "permission": {
         "edit": "deny",
       }
-    }
+    },
+    "build-website": {
+      "description": "Builds code (related to a website) based off of a plan and user's request.",
+      "mode": "primary",
+      "prompt": "You are in code build mode.\n\nYour task is to implement the plan that has been provided to you and edit/create the relevant files.\n\nDo not edit/create any files without the user's consent. It is best to list the files you will edit/create and ask the user's consent.\n\nEspecially, do not use any git commands without express permission. To verify the changes that you have made, take snapshots via `playright` to visially analyze the contents of the page you are editing.",
+      "permission": {
+        "edit": "allow",
+      },
+      "tools": {
+        "playwright": true
+      }
+    },
   }
 }
 

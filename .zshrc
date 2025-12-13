@@ -257,5 +257,22 @@ Add one blank line before each date group.
 Here is the git log I want you to format:
 ${log_output}
 " --model gpt-5-nano -o reasoning_effort "low"
+# " -m "openrouter/openai/gpt-5-nano"
 }
+
+function git_make_commit_message {
+  local git_diff_command
+  git_diff_command=$(git diff HEAD)
+  local git_diff_output
+  git_diff_output="$git_diff_command"
+  uvx llm "
+  Generate a commit message based off of the following git diff HEAD output.
+  The format should be a single sentance per file with newlines between each sentance, short summaries seperated by commas, do not be overtly verbose/detailed
+  Here is the output:
+
+${git_diff_output}
+" --model gpt-5-nano -o reasoning_effort "low"
+}
+
+
 
