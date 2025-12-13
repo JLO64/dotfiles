@@ -265,13 +265,16 @@ function git_make_commit_message {
   git_diff_command=$(git diff HEAD)
   local git_diff_output
   git_diff_output="$git_diff_command"
-  uvx llm "
+  local generated_git_commit
+  generated_git_commit=$(uvx llm "
   Generate a commit message based off of the following git diff HEAD output.
-  The format should be a single sentance per file with newlines between each sentance, short summaries seperated by commas, do not be overtly verbose/detailed
+  The format should be a single sentance per file with two newlines between each sentance, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be overtly verbose/detailed
   Here is the output:
 
 ${git_diff_output}
-" --model gpt-5-nano -o reasoning_effort "low"
+" --model gpt-5-nano -o reasoning_effort "low")
+  echo $generated_git_commit
+  echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
 }
 
 
