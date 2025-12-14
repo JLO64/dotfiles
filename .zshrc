@@ -249,14 +249,14 @@ function git_summarize {
 Summarize the last 25 git commits in bullet format made to the $current_branch branch.
 
 The format should be:
-(Time in AM/PM) Commit Message
+Time in AM/PM | Commit Message
 
 For each date, print one line before the entries that displays the date in MM/DD/YY format.
 Add one blank line before each date group.
 
 Here is the git log I want you to format:
 ${log_output}
-" --model gpt-5-nano -o reasoning_effort "low"
+" --model openrouter/anthropic/claude-haiku-4.5 
 # " -m "openrouter/openai/gpt-5-nano"
 }
 
@@ -268,11 +268,11 @@ function git_make_commit_message {
   local generated_git_commit
   generated_git_commit=$(uvx llm "
   Generate a commit message based off of the following git diff HEAD output.
-  The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changes
+  The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly 
   Here is the output:
 
 ${git_diff_output}
-" --model gpt-5-nano -o reasoning_effort "low")
+" --model openrouter/anthropic/claude-haiku-4.5 )
   echo $generated_git_commit
   git add .
   echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
