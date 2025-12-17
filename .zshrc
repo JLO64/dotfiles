@@ -239,20 +239,21 @@ function git_log_formatted {
 function git_summarize {
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     local git_log_string
-    git_log_string=$(git log "$current_branch" -25 \
-        --date=format:"%m/%d/%y|%I:%M %p" \
-        --pretty=format:"%ad|%s")
+    git_log_string=$(TZ=America/Los_Angeles git log "$current_branch" -25 \
+        --date=format-local:"%m/%d/%y|%I:%M %p" \
+        --pretty=format:"%ad|%an|%s")
 
     local log_output
     log_output="$git_log_string"
     uvx llm "
 Summarize the last 25 git commits in bullet format made to the $current_branch branch.
 
-The format should be:
-Time in AM/PM | Commit Message
+The format for each line should be:
+\`* (Time in AM/PM) - Author First Name/Word - Commit Message\`
 
-For each date, print one line before the entries that displays the date in MM/DD/YY format.
-Add one blank line before each date group.
+Have the commits sorted by oldest first.
+For each date, have there be one line before the entries that displays the date in MM/DD/YY format.
+Have there be one blank line before each date group with no other blank lines in the output.
 
 Here is the git log I want you to format:
 ${log_output}
