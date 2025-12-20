@@ -298,5 +298,13 @@ ${git_diff_output}
   fi
 }
 
+# Completion function for git_make_commit_message
+_git_make_commit_message() {
+  _arguments \
+    '--push[Commit and push changes to remote]'
+}
+
+# Register the completion function
+compdef _git_make_commit_message git_make_commit_message
 
 
