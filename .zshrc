@@ -243,16 +243,41 @@ function git_summarize {
         return 1
     fi
 
+    # Parse arguments
+    local num_commits=25  # default value
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --last_n_commits)
+                if [[ -z "$2" ]]; then
+                    echo "❌ \033[0;31mError\033[0m: --last_n_commits requires a numeric argument."
+                    return 1
+                fi
+                # Validate that argument is a positive integer
+                if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+                    echo "❌ \033[0;31mError\033[0m: --last_n_commits must be a positive integer (got: $2)."
+                    return 1
+                fi
+                num_commits="$2"
+                shift 2
+                ;;
+            *)
+                echo "❌ \033[0;31mError\033[0m: Unknown argument: $1"
+                echo "Usage: git_summarize [--last_n_commits NUMBER]"
+                return 1
+                ;;
+        esac
+    done
+
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     local git_log_string
-    git_log_string=$(TZ=America/Los_Angeles git log "$current_branch" -25 \
+    git_log_string=$(TZ=America/Los_Angeles git log "$current_branch" -${num_commits} \
         --date=format-local:"%m/%d/%y|%I:%M %p" \
         --pretty=format:"%ad|%an|%s")
 
     local log_output
     log_output="$git_log_string"
     uvx llm "
-Summarize the last 25 git commits in bullet format made to the $current_branch branch.
+Summarize the last ${num_commits} git commits in bullet format made to the $current_branch branch.
 
 The format for each line should be:
 \`* (Time in AM/PM) - Author First Name/Word - Commit Message\`
@@ -306,5 +331,14 @@ _git_make_commit_message() {
 
 # Register the completion function
 compdef _git_make_commit_message git_make_commit_message
+
+# Completion function for git_summarize
+_git_summarize() {
+  _arguments \
+    '--last_n_commits[Number of commits to summarize]:number of commits:((25\:"Show last 25 commits (default)"))'
+}
+
+# Register the completion function
+compdef _git_summarize git_summarize
 
 
