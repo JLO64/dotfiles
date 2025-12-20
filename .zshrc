@@ -237,6 +237,12 @@ function git_log_formatted {
 }
 
 function git_summarize {
+    # Check if .git/ directory exists
+    if [ ! -d .git ]; then
+        echo "❌ \033[0;31mError\033[0m: No .git/ directory found. Not in a git repository."
+        return 1
+    fi
+
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     local git_log_string
     git_log_string=$(TZ=America/Los_Angeles git log "$current_branch" -25 \
@@ -257,14 +263,14 @@ Have there be one blank line before each date group with no other blank lines in
 
 Here is the git log I want you to format:
 ${log_output}
-" --model openrouter/anthropic/claude-haiku-4.5 
+" --model openrouter/anthropic/claude-haiku-4.5
 # " -m "openrouter/openai/gpt-5-nano"
 }
 
 function git_make_commit_message {
   # Check if .git/ directory exists
   if [ ! -d .git ]; then
-    echo "❌ \033[0;31mError:\033[0m No .git/ directory found. Not in a git repository."
+    echo "❌ \033[0;31mError\033[0m: No .git/ directory found. Not in a git repository."
     return 1
   fi
 
