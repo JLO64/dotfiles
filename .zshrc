@@ -262,6 +262,12 @@ ${log_output}
 }
 
 function git_make_commit_message {
+  # Check if .git/ directory exists
+  if [ ! -d .git ]; then
+    echo "❌ \033[0;31mError:\033[0m No .git/ directory found. Not in a git repository."
+    return 1
+  fi
+
   local git_diff_command
   git_diff_command=$(git diff HEAD)
   local git_diff_output
@@ -269,14 +275,21 @@ function git_make_commit_message {
   local generated_git_commit
   generated_git_commit=$(uvx llm "
   Generate a commit message based off of the following git diff HEAD output.
-  The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly 
+  The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly
   Here is the output:
 
 ${git_diff_output}
 " --model openrouter/anthropic/claude-haiku-4.5 )
   echo $generated_git_commit
   git add .
-  echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
+
+  # Check if --push flag is present
+  if [[ "$1" == "--push" ]]; then
+    git commit -m "$generated_git_commit"
+    git push
+  else
+    echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
+  fi
 }
 
 
