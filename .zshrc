@@ -269,27 +269,11 @@ function git_summarize {
     done
 
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
-    local git_log_string
-    git_log_string=$(TZ=America/Los_Angeles git log "$current_branch" -${num_commits} \
-        --date=format-local:"%m/%d/%y|%I:%M %p" \
-        --pretty=format:"%ad|%an|%s")
 
-    local log_output
-    log_output="$git_log_string"
-    uvx llm "
-Summarize the last ${num_commits} git commits in bullet format made to the $current_branch branch.
-
-The format for each line should be:
-\`* (Time in AM/PM) - Author First Name/Word - Commit Message\`
-
-Have the commits sorted by oldest first.
-For each date, have there be one line before the entries that displays the date in MM/DD/YY format.
-Have there be one blank line before each date group with no other blank lines in the output.
-
-Here is the git log I want you to format:
-${log_output}
-" --model openrouter/anthropic/claude-haiku-4.5
-# " -m "openrouter/openai/gpt-5-nano"
+    TZ=America/Los_Angeles git log "$current_branch" -${num_commits} --reverse \
+        --date=format-local:"%m/%d/%y %I:%M %p" \
+        --pretty=format:"%ad - %an - %s" | \
+        perl -ne 'if (/^(\S+)\s+(\S+\s+\S+)\s+-\s+(.+)$/) { $day = $1; $time = $2; $rest = $3; if ($day ne $prev_day) { print "\n" if $prev_day; print "## $day\n\n"; $prev_day = $day; } print "$time - $rest\n"; }'
 }
 
 function git_make_commit_message {
