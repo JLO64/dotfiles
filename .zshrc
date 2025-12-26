@@ -284,6 +284,13 @@ function git_make_commit_message {
   fi
 
   git add .
+
+  # Check if there are any changes to commit
+  if [[ -z $(git diff --cached) ]]; then
+    echo "❌ \033[0;31mError\033[0m: No changes to commit."
+    return 1
+  fi
+
   local git_diff_command
   git_diff_command=$(git diff --cached)
   local git_diff_output
