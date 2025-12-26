@@ -283,20 +283,20 @@ function git_make_commit_message {
     return 1
   fi
 
+  git add .
   local git_diff_command
-  git_diff_command=$(git diff HEAD)
+  git_diff_command=$(git diff --cached)
   local git_diff_output
   git_diff_output="$git_diff_command"
   local generated_git_commit
   generated_git_commit=$(uvx llm "
-  Generate a commit message based off of the following git diff HEAD output.
+  Generate a commit message based off of the following git diff --cached output.
   The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly
   Here is the output:
 
 ${git_diff_output}
 " --model openrouter/anthropic/claude-haiku-4.5 )
   echo $generated_git_commit
-  git add .
 
   # Check if --push flag is present
   if [[ "$1" == "--push" ]]; then
