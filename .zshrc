@@ -64,7 +64,7 @@ function check_git_fetch {
             git fetch 2>/dev/null
             local end_time=$(date +%s.%N)
             local duration=$(echo "$end_time - $start_time" | bc)
-            GIT_FETCH_MESSAGE="Ran Git Fetch in ${duration}s"
+            GIT_FETCH_MESSAGE=$(printf "Ran Git Fetch in %.2fs" $duration)
         fi
     fi
 }
