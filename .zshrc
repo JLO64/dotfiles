@@ -36,10 +36,22 @@ function git_branch_info {
     local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     if [[ -n $branch ]]; then
         local changed_files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+
+        # Calculate ahead/behind (fails silently if no upstream)
+        local ahead=$(git rev-list --count @{upstream}..HEAD 2>/dev/null)
+        local behind=$(git rev-list --count HEAD..@{upstream} 2>/dev/null)
+
+        # Build tracking indicator
+        local tracking_info=""
+        if [[ -n $ahead ]] && [[ -n $behind ]]; then
+            [[ $ahead -gt 0 ]] && tracking_info+="↑${ahead}"
+            [[ $behind -gt 0 ]] && tracking_info+="↓${behind}"
+        fi
+
         if [[ $changed_files -eq 0 ]]; then
-            echo " %F{239}on%f %B%F{202}󰊢 $branch%f%b"  # orange for clean with git icon
+            echo " %F{239}on%f %B%F{202}󰊢 $branch${tracking_info}%f%b"  # orange for clean with git icon
         else
-            echo " %F{239}on%f %B%F{202}󰊢 $branch($changed_files)%f%b"  # orange for dirty with count and git icon
+            echo " %F{239}on%f %B%F{202}󰊢 $branch($changed_files)${tracking_info}%f%b"  # orange for dirty with count and git icon
         fi
     fi
 }
