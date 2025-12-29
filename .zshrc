@@ -32,29 +32,50 @@ ZSH_THEME_GIT_PROMPT_PREFIX=" %F{239}on%f %F{255}"
 ZSH_THEME_GIT_PROMPT_SUFFIX="%f"
 ZSH_THEME_GIT_PROMPT_DIRTY="%F{202}✘✘✘"
 ZSH_THEME_GIT_PROMPT_CLEAN="%F{40}✔"
-function git_branch_info {
-    local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
-    if [[ -n $branch ]]; then
+# Global variable to store git fetch message
+GIT_FETCH_MESSAGE=""
 
-        # Conditional fetch: trigger if >6 hours since last fetch
+# precmd hook to check and run git fetch before each prompt
+function check_git_fetch {
+    GIT_FETCH_MESSAGE=""
+
+    # Only run if we're in a git repository
+    if git rev-parse --git-dir &>/dev/null; then
         local FETCH_THRESHOLD=21600  # 6 hours in seconds
         local current_time=$(date +%s)
         local fetch_head_mtime=$(stat -f "%m" .git/FETCH_HEAD 2>/dev/null)
 
+        local should_fetch=false
+
         if [[ -n $fetch_head_mtime ]]; then
             local time_since_fetch=$((current_time - fetch_head_mtime))
             if [[ $time_since_fetch -ge $FETCH_THRESHOLD ]]; then
-                echo "Ran Git Fetch"
-                git fetch 2>/dev/null  # Synchronous fetch
+                should_fetch=true
             fi
         else
             # No FETCH_HEAD exists - try initial fetch if remote configured
             if git remote get-url origin &>/dev/null; then
-                echo "Ran Git Fetch"
-                git fetch 2>/dev/null
+                should_fetch=true
             fi
         fi
 
+        if [[ $should_fetch == true ]]; then
+            local start_time=$(date +%s.%N)
+            git fetch 2>/dev/null
+            local end_time=$(date +%s.%N)
+            local duration=$(echo "$end_time - $start_time" | bc)
+            GIT_FETCH_MESSAGE="Ran Git Fetch in ${duration}s"
+        fi
+    fi
+}
+
+# Add to precmd hooks
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd check_git_fetch
+
+function git_branch_info {
+    local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
+    if [[ -n $branch ]]; then
         local changed_files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 
         # Calculate ahead/behind (fails silently if no upstream)
@@ -76,8 +97,9 @@ function git_branch_info {
     fi
 }
 
-PROMPT="╭─%F{40} %n%f %F{239}in%f %B%F{226} %~%f%b\$(git_branch_info) %F{239}at%f 󰥔%t 
-╰─\$(virtualenv_info)○ "
+PROMPT='${GIT_FETCH_MESSAGE:+$GIT_FETCH_MESSAGE
+}╭─%F{40} %n%f %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
+╰─$(virtualenv_info)○ '
 
 
 # If you come from bash you might have to change your $PATH.
