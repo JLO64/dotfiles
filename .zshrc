@@ -35,6 +35,26 @@ ZSH_THEME_GIT_PROMPT_CLEAN="%F{40}✔"
 function git_branch_info {
     local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     if [[ -n $branch ]]; then
+
+        # Conditional fetch: trigger if >6 hours since last fetch
+        local FETCH_THRESHOLD=21600  # 6 hours in seconds
+        local current_time=$(date +%s)
+        local fetch_head_mtime=$(stat -f "%m" .git/FETCH_HEAD 2>/dev/null)
+
+        if [[ -n $fetch_head_mtime ]]; then
+            local time_since_fetch=$((current_time - fetch_head_mtime))
+            if [[ $time_since_fetch -ge $FETCH_THRESHOLD ]]; then
+                echo "Ran Git Fetch"
+                git fetch 2>/dev/null  # Synchronous fetch
+            fi
+        else
+            # No FETCH_HEAD exists - try initial fetch if remote configured
+            if git remote get-url origin &>/dev/null; then
+                echo "Ran Git Fetch"
+                git fetch 2>/dev/null
+            fi
+        fi
+
         local changed_files=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 
         # Calculate ahead/behind (fails silently if no upstream)
