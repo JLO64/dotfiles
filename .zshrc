@@ -356,7 +356,7 @@ function git_make_commit_message {
   Here is the output:
 
 ${git_diff_output}
-" -m lmstudio/google/gemma-3n-e4b )
+" -m lmstudio/google/gemma-3n-e4b 2>/dev/null)
   echo $generated_git_commit
 
   # Check if --push flag is present
