@@ -356,7 +356,7 @@ function git_make_commit_message {
   Here is the output:
 
 ${git_diff_output}
-" --model openrouter/anthropic/claude-haiku-4.5 )
+" -m lmstudio/google/gemma-3n-e4b )
   echo $generated_git_commit
 
   # Check if --push flag is present
