@@ -357,14 +357,9 @@ function git_make_commit_message {
 
 ${git_diff_output}
 " -m lmstudio/google/gemma-3n-e4b 2>/dev/null)
-  echo $generated_git_commit
-
   # Check if --push flag is present
   if [[ "$1" == "--push" ]]; then
     local commit_message="$generated_git_commit"
-    echo "\nGenerated commit message:"
-    echo "→ $commit_message\n"
-    echo "Press Enter to accept or edit the message:"
     vared -p "" -c commit_message
 
     if [[ -z "$commit_message" ]]; then
@@ -375,6 +370,7 @@ ${git_diff_output}
     git commit -m "$commit_message"
     git push
   else
+    echo $generated_git_commit
     echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
   fi
 }
