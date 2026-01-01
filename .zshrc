@@ -331,6 +331,41 @@ function git_summarize {
 }
 
 function git_make_commit_message {
+  # Parse flags (default is --push behavior)
+  local flag_mode="push"
+  local flag_count=0
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --push)
+        flag_mode="push"
+        flag_count=$((flag_count + 1))
+        shift
+        ;;
+      --lazygit)
+        flag_mode="lazygit"
+        flag_count=$((flag_count + 1))
+        shift
+        ;;
+      --print)
+        flag_mode="print"
+        flag_count=$((flag_count + 1))
+        shift
+        ;;
+      *)
+        echo "❌ \033[0;31mError\033[0m: Unknown argument: $1"
+        echo "Usage: git_make_commit_message [--push|--lazygit|--print]"
+        return 1
+        ;;
+    esac
+  done
+
+  # Validate mutual exclusion
+  if [[ $flag_count -gt 1 ]]; then
+    echo "❌ \033[0;31mError\033[0m: Flags are mutually exclusive. Use only one of: --push, --lazygit, or --print"
+    return 1
+  fi
+
   # Check if .git/ directory exists
   if [ ! -d .git ]; then
     echo "❌ \033[0;31mError\033[0m: No .git/ directory found. Not in a git repository."
@@ -356,9 +391,9 @@ function git_make_commit_message {
   Here is the output:
 
 ${git_diff_output}
-" -m lmstudio/google/gemma-3n-e4b 2>/dev/null)
-  # Check if --push flag is present
-  if [[ "$1" == "--push" ]]; then
+" -m lmstudio/google/gemma-3-12b 2>/dev/null)
+  # Execute based on mode
+  if [[ "$flag_mode" == "push" ]]; then
     local commit_message="$generated_git_commit"
     vared -p "" -c commit_message
 
@@ -373,16 +408,20 @@ ${git_diff_output}
       echo "❌ \033[0;31mError\033[0m: Commit/push failed"
       return 1
     fi
-  else
+  elif [[ "$flag_mode" == "lazygit" ]]; then
     echo $generated_git_commit
     echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
+  elif [[ "$flag_mode" == "print" ]]; then
+    echo $generated_git_commit
   fi
 }
 
 # Completion function for git_make_commit_message
 _git_make_commit_message() {
   _arguments \
-    '--push[Commit and push changes to remote]'
+    '(--lazygit --print)--push[Interactive commit and push to remote (default)]' \
+    '(--push --print)--lazygit[Print to stdout and save to .git/LAZYGIT_PENDING_COMMIT]' \
+    '(--push --lazygit)--print[Print to stdout only]'
 }
 
 # Register the completion function
