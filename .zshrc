@@ -361,7 +361,18 @@ ${git_diff_output}
 
   # Check if --push flag is present
   if [[ "$1" == "--push" ]]; then
-    git commit -m "$generated_git_commit"
+    local commit_message="$generated_git_commit"
+    echo "\nGenerated commit message:"
+    echo "→ $commit_message\n"
+    echo "Press Enter to accept or edit the message:"
+    vared -p "" -c commit_message
+
+    if [[ -z "$commit_message" ]]; then
+      echo "❌ \033[0;31mError\033[0m: Commit message cannot be empty. Aborting."
+      return 1
+    fi
+
+    git commit -m "$commit_message"
     git push
   else
     echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
