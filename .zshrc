@@ -90,9 +90,9 @@ function git_branch_info {
         fi
 
         if [[ $changed_files -eq 0 ]]; then
-            echo " %F{239}on%f %B%F{202}󰊢 $branch${tracking_info}%f%b"  # orange for clean with git icon
+            echo " %F{239}on%f %B%F{202}󰊢 $branch${tracking_info:+ $tracking_info}%f%b"  # orange for clean with git icon
         else
-            echo " %F{239}on%f %B%F{202}󰊢 $branch($changed_files)${tracking_info}%f%b"  # orange for dirty with count and git icon
+            echo " %F{239}on%f %B%F{202}󰊢 $branch($changed_files)${tracking_info:+ $tracking_info}%f%b"  # orange for dirty with count and git icon
         fi
     fi
 }
