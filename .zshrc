@@ -368,9 +368,9 @@ ${git_diff_output}
     fi
 
     if git commit -m "$commit_message" &>/dev/null && git push &>/dev/null; then
-      echo "✓ Committed and pushed successfully"
+      echo "\033[0;32m✓\033[0m Committed/pushed successfully"
     else
-      echo "❌ \033[0;31mError\033[0m: Commit or push failed"
+      echo "❌ \033[0;31mError\033[0m: Commit/push failed"
       return 1
     fi
   else
