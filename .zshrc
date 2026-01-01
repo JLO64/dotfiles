@@ -367,8 +367,12 @@ ${git_diff_output}
       return 1
     fi
 
-    git commit -m "$commit_message"
-    git push
+    if git commit -m "$commit_message" &>/dev/null && git push &>/dev/null; then
+      echo "✓ Committed and pushed successfully"
+    else
+      echo "❌ \033[0;31mError\033[0m: Commit or push failed"
+      return 1
+    fi
   else
     echo $generated_git_commit
     echo $generated_git_commit > ./.git/LAZYGIT_PENDING_COMMIT
