@@ -331,6 +331,13 @@ function git_summarize {
 }
 
 function git_make_commit_message {
+  # Check if LM Studio is available BEFORE doing anything else
+  if ! timeout 2 curl -s http://127.0.0.1:1234/v1/models &>/dev/null; then
+    echo "❌ \033[0;31mError\033[0m: LM Studio is not responding on http://127.0.0.1:1234"
+    echo "Please start LM Studio and try again."
+    return 1
+  fi
+
   # Parse flags (default is --push behavior)
   local flag_mode="push"
   local flag_count=0
