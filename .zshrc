@@ -232,7 +232,8 @@ eval "$(sheldon source)"
 
 # New nvm setup
 export NVM_DIR="$HOME/.nvm"
-alias nvm='unalias nvm; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; nvm $@'
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use &>/dev/null
+nvm use default &>/dev/null || nvm use node &>/dev/null
 
 #alias ls='lsr'
 #alias nvim='bat'
@@ -259,7 +260,7 @@ eval "$(rbenv init - zsh)"
 
 
 # The following lines have been added by Docker Desktop to enable Docker CLI completions.
-fpath=(/Users/64julianlopez/.docker/completions $fpath)
+fpath=(~/.docker/completions $fpath)
 # autoload -Uz compinit
 # compinit
 # End of Docker CLI completions
@@ -274,11 +275,11 @@ export EDITOR=nvim
 # zprof
 
 # Added by LM Studio CLI (lms)
-export PATH="$PATH:/Users/64julianlopez/.lmstudio/bin"
+export PATH="$PATH:~/.lmstudio/bin"
 # End of LM Studio CLI section
 
 # For uv tools to work
-export PATH="/Users/64julianlopez/.local/bin:$PATH"
+export PATH="~/.local/bin:$PATH"
 
 function git_log_formatted {
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
