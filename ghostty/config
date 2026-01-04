@@ -1,0 +1,5 @@
+font-size = 18
+font-family = "JetBrains Mono"
+theme = "/Users/64julianlopez/Documents/GitHub/tokyonight.nvim/extras/ghostty/tokyonight_storm"
+shell-integration = zsh
+keybind = shift+enter=text:\x1b\r
