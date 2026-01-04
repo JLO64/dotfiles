@@ -282,11 +282,12 @@ export EDITOR=nvim
 # zprof
 
 # Added by LM Studio CLI (lms)
-export PATH="$PATH:~/.lmstudio/bin"
+export PATH="$PATH:$HOME/.lmstudio/bin"
 # End of LM Studio CLI section
 
 # For uv tools to work
-export PATH="~/.local/bin:$PATH"
+# export PATH="~/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 function git_log_formatted {
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
