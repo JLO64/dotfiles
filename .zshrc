@@ -209,6 +209,13 @@ bindkey "$terminfo[kcbt]" reverse-menu-complete
 zstyle ':completion:*' completer _complete _complete:-fuzzy _correct _approximate _ignored _expand
 
 # source $ZSH/oh-my-zsh.sh
+
+# zsh-nvm configuration (must be set before sheldon loads)
+export NVM_DIR="$HOME/.nvm"
+export NVM_LAZY_LOAD=true
+export NVM_LAZY_LOAD_EXTRA_COMMANDS=('prettier')  # Add global npm packages here
+# export NVM_AUTO_USE=true  # Optional: auto-switch Node version with .nvmrc (conflicts with lazy load)
+
 eval "$(sheldon source)"
 
 # User configuration
@@ -240,16 +247,13 @@ eval "$(sheldon source)"
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
-# Old nvm setup
+# Old nvm setup (replaced with zsh-nvm via sheldon)
 # export NVM_DIR="$HOME/.nvm"
 # [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 # [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 # source $(brew --prefix nvm)/nvm.sh
-
-# New nvm setup
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use &>/dev/null
-nvm use default &>/dev/null || nvm use node &>/dev/null
+# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use &>/dev/null
+# nvm use default &>/dev/null || nvm use node &>/dev/null
 
 #alias ls='lsr'
 #alias nvim='bat'
