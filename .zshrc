@@ -203,9 +203,6 @@ zstyle ':autocomplete:menu-search:*' insert-unambiguous yes
 zstyle ':completion:*:*' matcher-list 'm:{[:lower:]-}={[:upper:]_}' '+r:|[.]=**'
 # bindkey -M menuselect              '^I' insert-unambiguous-or-complete
 # bindkey -M menuselect "$terminfo[kcbt]" insert-unambiguous-or-complete
-bindkey              '^I'         menu-complete
-bindkey "$terminfo[kcbt]" reverse-menu-complete
-
 zstyle ':completion:*' completer _complete _complete:-fuzzy _correct _approximate _ignored _expand
 
 # source $ZSH/oh-my-zsh.sh
@@ -215,6 +212,12 @@ export NVM_DIR="$HOME/.nvm"
 export NVM_LAZY_LOAD=true
 export NVM_LAZY_LOAD_EXTRA_COMMANDS=('prettier')  # Add global npm packages here
 # export NVM_AUTO_USE=true  # Optional: auto-switch Node version with .nvmrc (conflicts with lazy load)
+
+# zsh-vi-mode: Custom keybindings (must be defined before sheldon loads)
+function zvm_after_init() {
+  bindkey              '^I'         menu-complete
+  bindkey "$terminfo[kcbt]" autosuggest-accept
+}
 
 eval "$(sheldon source)"
 
