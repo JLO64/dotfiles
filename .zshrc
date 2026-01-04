@@ -43,7 +43,14 @@ function check_git_fetch {
     if git rev-parse --git-dir &>/dev/null; then
         local FETCH_THRESHOLD=21600  # 6 hours in seconds
         local current_time=$(date +%s)
-        local fetch_head_mtime=$(stat -f "%m" .git/FETCH_HEAD 2>/dev/null)
+
+        # Use appropriate stat command for macOS vs Linux
+        local fetch_head_mtime
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            fetch_head_mtime=$(stat -f "%m" .git/FETCH_HEAD 2>/dev/null)
+        else
+            fetch_head_mtime=$(stat -c "%Y" .git/FETCH_HEAD 2>/dev/null)
+        fi
 
         local should_fetch=false
 
