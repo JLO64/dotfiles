@@ -391,6 +391,8 @@ function git_make_commit_message {
   git_diff_command=$(git diff --cached)
   local git_diff_output
   git_diff_output="$git_diff_command"
+
+  echo "🤖 Generating commit message..."
   local generated_git_commit
   generated_git_commit=$(uvx llm "
   Generate a commit message based off of the following git diff --cached output.
@@ -398,7 +400,14 @@ function git_make_commit_message {
   Here is the output:
 
 ${git_diff_output}
-" -m lmstudio/google/gemma-3-12b 2>/dev/null)
+" -m lmstudio/google/gemma-3-12b)
+
+  # Check if commit message generation succeeded
+  if [[ -z "$generated_git_commit" ]]; then
+    echo "❌ \033[0;31mError\033[0m: Failed to generate commit message. LM Studio may not be configured correctly."
+    return 1
+  fi
+
   # Execute based on mode
   if [[ "$flag_mode" == "push" ]]; then
     local commit_message="$generated_git_commit"
