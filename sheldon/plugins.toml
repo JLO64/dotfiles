@@ -14,6 +14,9 @@ shell = "zsh"
 
 [plugins]
 
+[plugins.autocomplete]
+github = "marlonrichert/zsh-autocomplete"
+
 [plugins.vi-mode]
 github = "jeffreytse/zsh-vi-mode"
 

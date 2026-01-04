@@ -206,8 +206,6 @@ zstyle ':completion:*:*' matcher-list 'm:{[:lower:]-}={[:upper:]_}' '+r:|[.]=**'
 bindkey              '^I'         menu-complete
 bindkey "$terminfo[kcbt]" reverse-menu-complete
 
-source $HOMEBREW_PREFIX/share/zsh-autocomplete/zsh-autocomplete.plugin.zsh
-
 zstyle ':completion:*' completer _complete _complete:-fuzzy _correct _approximate _ignored _expand
 
 # source $ZSH/oh-my-zsh.sh
