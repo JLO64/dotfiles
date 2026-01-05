@@ -17,3 +17,4 @@ Be sure to download/install `JetBrains Mono` from [nerdfonts.com](https://www.ne
 ## .zshrc
 
 - For `git_make_commit_message` you'll need to install `llm` and it's LM Studio plugin via `llm install llm-lmstudio`
+- For `check_git_fetch` you'll need to install `bc`
