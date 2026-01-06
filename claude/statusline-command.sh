@@ -45,7 +45,7 @@ function claude_git_branch_info {
 }
 
 dir_name=$(basename "$cwd")
-claude_code_prompt="\033[38;5;208m $MODEL (${PERCENT_USED}%)\033[0m in \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) at\033[0m 󰥔 $(date +"%I:%M%p")
+claude_code_prompt="\033[38;5;208m $MODEL (${PERCENT_USED}%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p")
 "
 
 echo "$claude_code_prompt"
