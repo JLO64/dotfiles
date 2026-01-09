@@ -20,6 +20,28 @@ else
     PERCENT_USED=$(echo "0")
 fi
 
+function get_claude_five_hour_usage {
+  # Retrieve access token from macOS Keychain
+  local token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
+
+  if [[ -z "$token" || "$token" == "null" ]]; then
+    echo "0"
+    return
+  fi
+
+  # Query the Claude usage API
+  local response=$(curl -s -H "Authorization: Bearer $token" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -H "anthropic-beta: oauth-2025-04-20" \
+    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+
+  # Extract five_hour utilization percentage and convert to integer
+  local utilization=$(echo "$response" | jq -r '.five_hour.utilization // 0' 2>/dev/null)
+
+  printf "%.0f" "$utilization"
+}
+
 function claude_git_branch_info {
   local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
   if [[ -n $branch ]]; then
@@ -45,7 +67,7 @@ function claude_git_branch_info {
 }
 
 dir_name=$(basename "$cwd")
-claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p")
+claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage)%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p")
 "
 
 echo "$claude_code_prompt"
