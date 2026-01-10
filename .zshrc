@@ -73,7 +73,7 @@ function check_git_fetch {
 
         if [[ $should_fetch == true ]]; then
             local start_time=$(date +%s.%N)
-            git fetch 2>/dev/null
+            git fetch --no-tags origin "$(git branch --show-current)" 2>/dev/null
             local end_time=$(date +%s.%N)
             local duration=$(echo "$end_time - $start_time" | bc)
             GIT_FETCH_MESSAGE=$(printf "Ran Git Fetch in %.2fs" $duration)
