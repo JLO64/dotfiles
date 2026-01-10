@@ -20,21 +20,30 @@ else
     PERCENT_USED=$(echo "0")
 fi
 
-function get_claude_five_hour_usage {
+function get_claude_usage_data {
   # Retrieve access token from macOS Keychain
   local token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
 
   if [[ -z "$token" || "$token" == "null" ]]; then
-    echo "0"
+    echo ""
     return
   fi
 
-  # Query the Claude usage API
-  local response=$(curl -s -H "Authorization: Bearer $token" \
+  # Query the Claude usage API once and return the full response
+  curl -s -H "Authorization: Bearer $token" \
     -H "Accept: application/json" \
     -H "Content-Type: application/json" \
     -H "anthropic-beta: oauth-2025-04-20" \
-    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null
+}
+
+function get_claude_five_hour_usage {
+  local response="$1"
+
+  if [[ -z "$response" ]]; then
+    echo "0"
+    return
+  fi
 
   # Extract five_hour utilization percentage and convert to integer
   local utilization=$(echo "$response" | jq -r '.five_hour.utilization // 0' 2>/dev/null)
@@ -44,28 +53,12 @@ function get_claude_five_hour_usage {
 
 
 function claude_time_remaining {
-    # Get access token from macOS Keychain
-    local credentials=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
+    local response="$1"
 
-    if [ -z "$credentials" ]; then
-        echo "Error: Not logged in to Claude Code"
+    if [[ -z "$response" ]]; then
+        echo "Error: No usage data"
         return 1
     fi
-
-    # Extract access token from JSON
-    local access_token=$(echo "$credentials" | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
-
-    if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
-        echo "Error: Could not extract access token"
-        return 1
-    fi
-
-    # Call Anthropic API
-    local response=$(curl -s -H "Accept: application/json" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $access_token" \
-        -H "anthropic-beta: oauth-2025-04-20" \
-        "https://api.anthropic.com/api/oauth/usage")
 
     # Extract resets_at timestamp
     local resets_at=$(echo "$response" | jq -r '.five_hour.resets_at' 2>/dev/null)
@@ -104,7 +97,7 @@ function claude_time_remaining {
 
     # Format output
     if [ $hours -gt 0 ]; then
-        echo "${hours}h${minutes}m"
+        echo "${hours}h ${minutes}m"
     else
         echo "${minutes}m"
     fi
@@ -135,8 +128,11 @@ function claude_git_branch_info {
   fi
 }
 
+# Make API call once and cache the response
+CLAUDE_USAGE_DATA=$(get_claude_usage_data)
+
 dir_name=$(basename "$cwd")
-claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage)%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p") ($(claude_time_remaining))
+claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage "$CLAUDE_USAGE_DATA")%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p") ($(claude_time_remaining "$CLAUDE_USAGE_DATA"))
 "
 
 echo "$claude_code_prompt"
