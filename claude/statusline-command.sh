@@ -42,6 +42,75 @@ function get_claude_five_hour_usage {
   printf "%.0f" "$utilization"
 }
 
+
+function claude_time_remaining {
+    # Get access token from macOS Keychain
+    local credentials=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
+
+    if [ -z "$credentials" ]; then
+        echo "Error: Not logged in to Claude Code"
+        return 1
+    fi
+
+    # Extract access token from JSON
+    local access_token=$(echo "$credentials" | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
+
+    if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
+        echo "Error: Could not extract access token"
+        return 1
+    fi
+
+    # Call Anthropic API
+    local response=$(curl -s -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $access_token" \
+        -H "anthropic-beta: oauth-2025-04-20" \
+        "https://api.anthropic.com/api/oauth/usage")
+
+    # Extract resets_at timestamp
+    local resets_at=$(echo "$response" | jq -r '.five_hour.resets_at' 2>/dev/null)
+
+    if [ -z "$resets_at" ] || [ "$resets_at" = "null" ]; then
+        echo "Error: Could not get reset time from API"
+        return 1
+    fi
+
+    # Convert ISO8601 timestamp to epoch time
+    # Remove fractional seconds and timezone for parsing
+    local clean_timestamp=$(echo "$resets_at" | sed -E 's/\.[0-9]+\+00:00$/Z/' | sed -E 's/\+00:00$/Z/')
+
+    # Parse as UTC using -u flag
+    local reset_epoch=$(date -ju -f "%Y-%m-%dT%H:%M:%SZ" "$clean_timestamp" "+%s" 2>/dev/null)
+
+    if [ -z "$reset_epoch" ]; then
+        echo "Error: Could not parse reset time"
+        return 1
+    fi
+
+    # Get current time
+    local now_epoch=$(date "+%s")
+
+    # Calculate difference in seconds
+    local diff=$((reset_epoch - now_epoch))
+
+    if [ $diff -le 0 ]; then
+        echo "soon"
+        return 0
+    fi
+
+    # Convert to hours and minutes
+    local hours=$((diff / 3600))
+    local minutes=$(((diff % 3600) / 60))
+
+    # Format output
+    if [ $hours -gt 0 ]; then
+        echo "${hours}h${minutes}m"
+    else
+        echo "${minutes}m"
+    fi
+}
+
+
 function claude_git_branch_info {
   local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
   if [[ -n $branch ]]; then
@@ -67,7 +136,7 @@ function claude_git_branch_info {
 }
 
 dir_name=$(basename "$cwd")
-claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage)%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p")
+claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage)%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p") ($(claude_time_remaining))
 "
 
 echo "$claude_code_prompt"
