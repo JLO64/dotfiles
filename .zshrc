@@ -413,7 +413,7 @@ function git_make_commit_message {
   fi
 
   local git_diff_command
-  git_diff_command=$(git diff --cached -U15 -W)
+  git_diff_command=$(git diff --cached -U15 -W --no-color)
   local git_diff_output
   git_diff_output="$git_diff_command"
 
@@ -430,9 +430,11 @@ Here is the output:
 ${git_diff_output}"
 
   local response
+  local json_payload
+  json_payload=$(jq -n --arg prompt "$prompt" '{model: "lmstudio/google/gemma-3-12b", messages: [{role: "user", content: $prompt}]}')
   response=$(curl -s -X POST http://127.0.0.1:1234/v1/chat/completions \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg prompt "$prompt" '{model: "lmstudio/google/gemma-3-12b", messages: [{role: "user", content: $prompt}]}')")
+    -d "$json_payload")
 
   generated_git_commit=$(echo "$response" | jq -r '.choices[0].message.content')
 
