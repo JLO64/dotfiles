@@ -413,13 +413,17 @@ function git_make_commit_message {
   fi
 
   local git_diff_command
-  git_diff_command=$(git diff --cached)
+  git_diff_command=$(git diff --cached -U15 -W)
   local git_diff_output
   git_diff_output="$git_diff_command"
+
+  # Extract file type hints from the diff
+  local file_types=$(echo "$git_diff_output" | grep '^diff --git' | sed 's/.*\.//' | sed 's/ .*//' | sort | uniq | tr '\n' ', ' | sed 's/,$//')
 
   echo "🤖 Generating commit message..."
   local generated_git_commit
   local prompt="Generate a commit message based off of the following git diff --cached output.
+File types being modified: $file_types
 The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly
 Here is the output:
 
