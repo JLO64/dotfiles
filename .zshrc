@@ -419,17 +419,23 @@ function git_make_commit_message {
 
   echo "🤖 Generating commit message..."
   local generated_git_commit
-  generated_git_commit=$(uvx llm "
-  Generate a commit message based off of the following git diff --cached output.
-  The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly
-  Here is the output:
+  local prompt="Generate a commit message based off of the following git diff --cached output.
+The format should be a single sentance per file with no newlines between each sentance only a period/space, the start of each sentance should be the filename and a colon, short summaries seperated by commas, do not be verbose/detailed, focus on impact/result rather than code/function/variable changesovertly
+Here is the output:
 
-${git_diff_output}
-" -m lmstudio/google/gemma-3-12b)
+${git_diff_output}"
+
+  local response
+  response=$(curl -s -X POST http://127.0.0.1:1234/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg prompt "$prompt" '{model: "lmstudio/google/gemma-3-12b", messages: [{role: "user", content: $prompt}]}')")
+
+  generated_git_commit=$(echo "$response" | jq -r '.choices[0].message.content')
 
   # Check if commit message generation succeeded
-  if [[ -z "$generated_git_commit" ]]; then
+  if [[ -z "$generated_git_commit" ]] || [[ "$generated_git_commit" == "null" ]]; then
     echo "❌ \033[0;31mError\033[0m: Failed to generate commit message. LM Studio may not be configured correctly."
+    echo "Response: $response"
     return 1
   fi
 
