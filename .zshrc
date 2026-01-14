@@ -46,6 +46,10 @@ function check_git_fetch {
 
     # Only run if we're in a git repository
     if git rev-parse --git-dir &>/dev/null; then
+        # Only run if we're in the root of the repository
+        if [[ "$(git rev-parse --show-toplevel)" != "$(pwd)" ]]; then
+            return
+        fi
         local FETCH_THRESHOLD=21600  # 6 hours in seconds
         local current_time=$(date +%s)
 
