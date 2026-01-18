@@ -121,9 +121,11 @@ function claude_git_branch_info {
     fi
 
     if [[ $changed_files -eq 0 ]]; then
-      echo "\033[38;5;239mon\033[0m \033[1m\033[38;5;202m󰊢 $branch${tracking_info:+ $tracking_info}\033[0m" # orange for clean with git icon
+      # echo "\033[38;5;239mon\033[0m \033[1m\033[38;5;202m󰊢 $branch${tracking_info:+ $tracking_info}\033[0m" # orange for clean with git icon
+      echo "on $branch${tracking_info:+ $tracking_info}" # orange for clean with git icon
     else
-      echo "\033[38;5;239mon\033[0m \033[1m\033[38;5;202m󰊢 $branch($changed_files)${tracking_info:+ $tracking_info}\033[0m" # orange for dirty with count and git icon
+      # echo "\033[38;5;239mon\033[0m \033[1m\033[38;5;202m󰊢 $branch($changed_files)${tracking_info:+ $tracking_info}\033[0m" # orange for dirty with count and git icon
+      echo "on $branch($changed_files)${tracking_info:+ $tracking_info}" # orange for dirty with count and git icon
     fi
   fi
 }
@@ -132,7 +134,7 @@ function claude_git_branch_info {
 CLAUDE_USAGE_DATA=$(get_claude_usage_data)
 
 dir_name=$(basename "$cwd")
-claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage "$CLAUDE_USAGE_DATA")%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p") ($(claude_time_remaining "$CLAUDE_USAGE_DATA"))
-"
+# claude_code_prompt="\033[38;5;208m$MODEL (󰧑 ${PERCENT_USED}%,  $(get_claude_five_hour_usage "$CLAUDE_USAGE_DATA")%)\033[0m \033[38;5;239min\033[0m \033[1m\033[38;5;226m ${PWD/#$HOME/~}\033[0m\033[22m \033[38;5;239m$(claude_git_branch_info) \033[38;5;239mat\033[0m \033[0m󰥔 $(date +"%I:%M%p") ($(claude_time_remaining "$CLAUDE_USAGE_DATA"))"
+claude_code_prompt="$MODEL (${PERCENT_USED}%, $(get_claude_five_hour_usage "$CLAUDE_USAGE_DATA")%) ${PWD/#$HOME/~} $(claude_git_branch_info) $(date +"%I:%M%p") ($(claude_time_remaining "$CLAUDE_USAGE_DATA"))"
 
 echo "$claude_code_prompt"
