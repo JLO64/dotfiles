@@ -127,6 +127,9 @@ PROMPT='${GIT_FETCH_MESSAGE:+$GIT_FETCH_MESSAGE
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
+# For uv tools and sheldon to work
+export PATH="$HOME/.local/bin:$PATH"
+
 # Path to your Oh My Zsh installation.
 # export ZSH="$HOME/.oh-my-zsh"
 
@@ -305,9 +308,6 @@ export EDITOR=nvim
 export PATH="$PATH:$HOME/.lmstudio/bin"
 # End of LM Studio CLI section
 
-# For uv tools to work
-# export PATH="~/.local/bin:$PATH"
-export PATH="$HOME/.local/bin:$PATH"
 
 function git_log_formatted {
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
