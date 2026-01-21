@@ -27,10 +27,32 @@ function virtualenv_info {
     [ $VIRTUAL_ENV ] && echo '('`basename $VIRTUAL_ENV`') '
 }
 
+# Detect OS and set device info with icon, username, and color
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  OS_NAME=""
+  # macOS - silver (color 250)
+  DEVICE_INFO="%F{250} %n%f"
 else
-  OS_NAME=""
+  # Linux - detect distro
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    case "$ID" in
+      fedora)
+        # Fedora - blue (color 33)
+        DEVICE_INFO="%F{33} %n%f"
+        ;;
+      debian)
+        # Debian - red (color 160)
+        DEVICE_INFO="%F{160} %n%f"
+        ;;
+      *)
+        # Unknown Linux - white (color 15)
+        DEVICE_INFO="%F{15} %n%f"
+        ;;
+    esac
+  else
+    # Fallback - white (color 15)
+    DEVICE_INFO="%F{15} %n%f"
+  fi
 fi
 
 ZSH_THEME_GIT_PROMPT_PREFIX=" %F{239}on%f %F{255}"
@@ -120,7 +142,7 @@ function git_branch_info {
 # fi
 
 PROMPT='${GIT_FETCH_MESSAGE:+$GIT_FETCH_MESSAGE
-}╭─%F{40}${OS_NAME} %n%f %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
+}╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
 ╰─$(virtualenv_info)○ '
 
 
