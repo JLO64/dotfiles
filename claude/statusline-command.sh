@@ -21,8 +21,19 @@ else
 fi
 
 function get_claude_usage_data {
-  # Retrieve access token from macOS Keychain
-  local token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
+  local token=""
+
+  # Detect OS and retrieve access token accordingly
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: Use Keychain
+    token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken' 2>/dev/null)
+  else
+    # Linux: Read from .credentials.json file
+    local cred_file="$HOME/.claude/.credentials.json"
+    if [[ -f "$cred_file" ]]; then
+      token=$(jq -r '.claudeAiOauth.accessToken' "$cred_file" 2>/dev/null)
+    fi
+  fi
 
   if [[ -z "$token" || "$token" == "null" ]]; then
     echo ""
@@ -56,28 +67,35 @@ function claude_time_remaining {
     local response="$1"
 
     if [[ -z "$response" ]]; then
-        echo "Error: No usage data"
-        return 1
+        echo "N/A"
+        return 0
     fi
 
     # Extract resets_at timestamp
     local resets_at=$(echo "$response" | jq -r '.five_hour.resets_at' 2>/dev/null)
 
     if [ -z "$resets_at" ] || [ "$resets_at" = "null" ]; then
-        echo "Error: Could not get reset time from API"
-        return 1
+        echo "N/A"
+        return 0
     fi
 
     # Convert ISO8601 timestamp to epoch time
     # Remove fractional seconds and timezone for parsing
     local clean_timestamp=$(echo "$resets_at" | sed -E 's/\.[0-9]+\+00:00$/Z/' | sed -E 's/\+00:00$/Z/')
 
-    # Parse as UTC using -u flag
-    local reset_epoch=$(date -ju -f "%Y-%m-%dT%H:%M:%SZ" "$clean_timestamp" "+%s" 2>/dev/null)
+    # Parse as UTC - use different syntax for GNU date (Linux) vs BSD date (macOS)
+    local reset_epoch
+    if date --version >/dev/null 2>&1; then
+        # GNU date (Linux)
+        reset_epoch=$(date -d "$clean_timestamp" "+%s" 2>/dev/null)
+    else
+        # BSD date (macOS)
+        reset_epoch=$(date -ju -f "%Y-%m-%dT%H:%M:%SZ" "$clean_timestamp" "+%s" 2>/dev/null)
+    fi
 
     if [ -z "$reset_epoch" ]; then
-        echo "Error: Could not parse reset time"
-        return 1
+        echo "N/A"
+        return 0
     fi
 
     # Get current time
