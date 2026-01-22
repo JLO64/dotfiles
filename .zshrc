@@ -17,6 +17,7 @@ setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_IGNORE_SPACE
 setopt HIST_FIND_NO_DUPS
 setopt HIST_SAVE_NO_DUPS
+HISTFILE=~/.zsh_history
 HISTSIZE=100000
 SAVEHIST=100000
 
@@ -43,6 +44,7 @@ else
       debian)
         # Debian - red (color 160)
         DEVICE_INFO="%F{160} %n%f"
+        export PATH="$PATH:/opt/nvim-linux-x86_64/bin"
         ;;
       *)
         # Unknown Linux - white (color 15)
