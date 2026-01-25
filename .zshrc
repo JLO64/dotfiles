@@ -45,6 +45,8 @@ else
         # Debian - red (color 160)
         DEVICE_INFO="%F{160} %n%f"
         export PATH="$PATH:/opt/nvim-linux-x86_64/bin"
+        export PATH="$HOME/gems/bin:$PATH"
+        export GEM_HOME="$HOME/gems"
         ;;
       *)
         # Unknown Linux - white (color 15)
