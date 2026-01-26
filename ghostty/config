@@ -2,8 +2,10 @@ font-size = 18
 font-family = "JetBrains Mono"
 #theme = "/Users/64julianlopez/Documents/GitHub/tokyonight.nvim/extras/ghostty/tokyonight_storm"
 theme = Rose Pine Moon
+mouse-hide-while-typing = true
+window-decoration = true
 shell-integration = zsh
-keybind = shift+enter=text:\x1b\r
+#keybind = shift+enter=text:\x1b\r
 clipboard-read = allow
 clipboard-write = allow
 custom-shader = ~/.config/ghostty/shaders/bloom.glsl
