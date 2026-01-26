@@ -1,8 +1,8 @@
 // modified version of https://www.shadertoy.com/view/wld3WN
 // amount of seconds for which the glitch loop occurs
 #define DURATION 10.
-// percentage of the duration for which the glitch is triggered
-#define AMT .1
+// percentage of the duration for which the glitch is triggered (0 = disabled)
+#define AMT 0.
 
 #define SS(a, b, x) (smoothstep(a, b, x) * smoothstep(b, a, x))
 
@@ -95,12 +95,12 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     // analog distortion
     float y = uv.y * iResolution.y;
-    float distortion = gnoise(vec3(0., y * .01, t * 500.)) * (glitchAmount * 4. + .1);
-    distortion *= gnoise(vec3(0., y * .02, t * 250.)) * (glitchAmount * 2. + .025);
+    float distortion = gnoise(vec3(0., y * .01, t * 500.)) * (glitchAmount * 4. + .03);
+    distortion *= gnoise(vec3(0., y * .02, t * 250.)) * (glitchAmount * 2. + .01);
 
     ++displayNoise;
-    distortion += smoothstep(.999, 1., sin((uv.y + t * 1.6) * 2.)) * .02;
-    distortion -= smoothstep(.999, 1., sin((uv.y + t) * 2.)) * .02;
+    distortion += smoothstep(.999, 1., sin((uv.y + t * 1.6) * 2.)) * 0.;
+    distortion -= smoothstep(.999, 1., sin((uv.y + t) * 2.)) * 0.;
     st = uv + vec2(distortion, 0.);
     // chromatic aberration
     col.r += textureLod(iChannel0, st + eps + distortion, 0.).r;
@@ -109,9 +109,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     
     // white noise + scanlines
     displayNoise = 0.2 * clamp(displayNoise, 0., 1.);
-    col += (.15 + .65 * glitchAmount) * (hash33(vec3(fragCoord, mod(float(iFrame),
+    col += (.05 + .65 * glitchAmount) * (hash33(vec3(fragCoord, mod(float(iFrame),
 					1000.))).r) * displayNoise;
-    col -= (.25 + .75 * glitchAmount) * (sin(4. * t + uv.y * iResolution.y * 1.75))
+    col -= (.08 + .75 * glitchAmount) * (sin(4. * t + uv.y * iResolution.y * 1.75))
 					* displayNoise;
     fragColor = vec4(col, 1.0);
 }
