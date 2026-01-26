@@ -9,4 +9,4 @@ clipboard-write = allow
 custom-shader = ~/.config/ghostty/shaders/bloom.glsl
 custom-shader = ~/.config/ghostty/shaders/animated-gradient-shader.glsl
 custom-shader = ~/.config/ghostty/shaders/glitchy.glsl
-custom-shader = ~/.config/ghostty/shaders/dither.glsl
+#custom-shader = ~/.config/ghostty/shaders/dither.glsl

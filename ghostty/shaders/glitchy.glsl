@@ -109,9 +109,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     
     // white noise + scanlines
     displayNoise = 0.2 * clamp(displayNoise, 0., 1.);
-    col += (2. + .65 * glitchAmount) * (hash33(vec3(fragCoord, mod(float(iFrame),
+    col += (0.7 + .65 * glitchAmount) * (hash33(vec3(fragCoord, mod(float(iFrame),
 					1000.))).r) * displayNoise;
-    col -= (.4 + .75 * glitchAmount) * (sin(4. * t + uv.y * iResolution.y * 1.75))
+    col -= (0.2 + .75 * glitchAmount) * (sin(4. * t + uv.y * iResolution.y * 1.75))
 					* displayNoise;
     fragColor = vec4(col, 1.0);
 }
