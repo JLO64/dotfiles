@@ -90,7 +90,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     float glitchAmount = SS(DURATION * .001, DURATION * AMT, mod(t, DURATION));  
 	float displayNoise = 0.;
     vec3 col = vec3(0.);
-    vec2 eps = vec2(5. / iResolution.x, 0.);
+    // vec2 eps = vec2(5. / iResolution.x, 0.);
+    vec2 eps = vec2(3. / iResolution.x, 0.);
     vec2 st = vec2(0.);
 
     // analog distortion
