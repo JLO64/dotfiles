@@ -335,6 +335,8 @@ export EDITOR=nvim
 export PATH="$PATH:$HOME/.lmstudio/bin"
 # End of LM Studio CLI section
 
+# custom alias for kitty protocol icat
+alias icat='kitty +kitten icat'
 
 function git_log_formatted {
     local current_branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
