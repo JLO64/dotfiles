@@ -249,8 +249,8 @@ export NVM_LAZY_LOAD_EXTRA_COMMANDS=('prettier')  # Add global npm packages here
 
 # zsh-vi-mode: Custom keybindings (must be defined before sheldon loads)
 function zvm_after_init() {
-  bindkey              '^I'         menu-complete
-  bindkey "$terminfo[kcbt]" autosuggest-accept
+  bindkey              '^I'         autosuggest-accept
+  bindkey "$terminfo[kcbt]" menu-complete
 }
 
 eval "$(sheldon source)"
