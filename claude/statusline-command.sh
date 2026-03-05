@@ -21,6 +21,18 @@ else
 fi
 
 function get_claude_usage_data {
+  local cache_file="/tmp/claude_usage_cache.json"
+  local cache_ttl=300  # 5 minutes
+
+  # Use cache if it exists and is fresh
+  if [[ -f "$cache_file" ]]; then
+    local cache_age=$(( $(date +%s) - $(date -r "$cache_file" +%s) ))
+    if [[ $cache_age -lt $cache_ttl ]]; then
+      cat "$cache_file"
+      return
+    fi
+  fi
+
   local token=""
 
   # Detect OS and retrieve access token accordingly
@@ -36,16 +48,28 @@ function get_claude_usage_data {
   fi
 
   if [[ -z "$token" || "$token" == "null" ]]; then
+    # Serve stale cache if available, to avoid breaking statusline on auth failure
+    [[ -f "$cache_file" ]] && cat "$cache_file" && return
     echo ""
     return
   fi
 
-  # Query the Claude usage API once and return the full response
-  curl -s -H "Authorization: Bearer $token" \
+  # Query the Claude usage API and cache the response
+  local response
+  response=$(curl -s -H "Authorization: Bearer $token" \
     -H "Accept: application/json" \
     -H "Content-Type: application/json" \
     -H "anthropic-beta: oauth-2025-04-20" \
-    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null
+    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+
+  if [[ -n "$response" ]]; then
+    echo "$response" > "$cache_file"
+  else
+    # Serve stale cache on network failure
+    [[ -f "$cache_file" ]] && cat "$cache_file" && return
+  fi
+
+  echo "$response"
 }
 
 function get_claude_five_hour_usage {
