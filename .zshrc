@@ -147,7 +147,7 @@ function git_branch_info {
 # fi
 
 PROMPT='${GIT_FETCH_MESSAGE:+$GIT_FETCH_MESSAGE
-}╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
+╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
 ╰─$(virtualenv_info)○ '
 
 
