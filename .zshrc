@@ -464,14 +464,29 @@ ${git_diff_output}"
 
   local response
   local llm_studio_model
-  llm_studio_model="qwen/qwen3-coder-30b"
+  llm_studio_model="qwen3.5-35b-a3b@5bit"
   local json_payload
   json_payload=$(jq -n --arg prompt "$prompt" --arg model "$llm_studio_model" '{model: $model, messages: [{role: "user", content: $prompt}]}')
   response=$(curl -s -X POST http://127.0.0.1:1234/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d "$json_payload")
 
-  generated_git_commit=$(echo "$response" | jq -r '.choices[0].message.content')
+  generated_git_commit=$(echo "$response" | python3 -c "
+import sys, re, json
+raw = sys.stdin.read()
+# LM Studio emits invalid JSON when thinking models produce reasoning_content
+# with literal unescaped newlines. Extract 'content' via regex before that field.
+match = re.search(r'\"content\":\s*\"(.*?)\",\s*\"reasoning_content\"', raw, re.DOTALL)
+if match:
+    content = match.group(1).replace('\\\\n', '\n').replace('\\\\\"', '\"').replace('\\\\\\\\', '\\\\')
+    print(content.strip())
+else:
+    try:
+        data = json.loads(raw)
+        print(data['choices'][0]['message']['content'].strip())
+    except Exception:
+        pass
+")
 
   # Check if commit message generation succeeded
   if [[ -z "$generated_git_commit" ]] || [[ "$generated_git_commit" == "null" ]]; then
