@@ -464,7 +464,7 @@ ${git_diff_output}"
 
   local response
   local llm_studio_model
-  llm_studio_model="qwen3.5-35b-a3b@5bit"
+  llm_studio_model="qwen3-4b-mlx"
   local json_payload
   json_payload=$(jq -n --arg prompt "$prompt" --arg model "$llm_studio_model" '{model: $model, messages: [{role: "user", content: $prompt}]}')
   response=$(curl -s -X POST http://127.0.0.1:1234/v1/chat/completions \
