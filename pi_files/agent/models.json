@@ -1,0 +1,29 @@
+{
+  "providers": {
+    "LM Studio": {
+      "baseUrl": "http://127.0.0.1:1234/v1",
+      "api": "openai-completions",
+      "apiKey": "dummy_key",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "qwen3.5-35b-a3b@5bit",
+          "name": "Qwen3.5 35b A3B (5Bit)",
+          "input": ["text", "image"],
+          "maxTokens": 48000,
+          "reasoning": true
+        },
+        {
+          "id": "glm-4.7-flash",
+          "name": "GLM 4.7 Flash", 
+          "input": ["text"],
+          "maxTokens": 48000,
+          "reasoning": true
+        }
+      ]
+    }
+  }
+}
