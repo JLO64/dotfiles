@@ -1,12 +1,13 @@
 {
-  "lastChangelogVersion": "0.65.0",
-  "defaultProvider": "LM Studio",
-  "defaultModel": "qwen3.5-35b-a3b@5bit",
+  "lastChangelogVersion": "0.67.68",
+  "defaultProvider": "openrouter",
+  "defaultModel": "qwen/qwen3.6-plus",
   "enabledModels": [
     "LM Studio/*"
   ],
   "packages": [
-    "npm:pi-vim"
+    "npm:pi-vim",
+    "npm:pi-rewind"
   ],
   "defaultThinkingLevel": "medium"
 }
