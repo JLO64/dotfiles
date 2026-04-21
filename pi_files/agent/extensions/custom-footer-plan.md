@@ -29,13 +29,15 @@ The built-in `FooterComponent` renders up to 3 lines:
 | Layout | **Single-line flowing sentence** (left-to-right, like Claude script) |
 | Git dirty count + ahead/behind | **Yes** — shell out to `git status` / `git rev-list` |
 | Color scheme | **Pi theme tokens** (`accent`, `dim`, `warning`, `error`). *Note: may switch to hardcoded ANSI 256-color codes in the future.* |
-| Time display | **Yes** — current time in `3:45pm` format |
+| Time display | **Yes** — current time in `4:05pm` format |
 | Claude OAuth usage % / countdown | **No** — Claude-specific, not available in pi |
 | Session name / auto-compact / extension statuses | **No** — not in the Claude script, not needed here |
 | Cache read/write tokens | **No** — omitted for brevity |
 | Cost display | **No** — omitted for brevity |
 | Provider prefix | **No** — omitted for brevity |
 | Thinking level | **No** — omitted for brevity |
+| Username / "via" connector | **No** — replaced with hostname in directory |
+| Nerd font icons | **Planned** — `\|` used as placeholder, to be replaced manually with actual icons |
 
 ---
 
@@ -44,25 +46,29 @@ The built-in `FooterComponent` renders up to 3 lines:
 ### Single-line flowing layout
 
 ```
-moonshotai/kimi-k2.6 (↑11k ↓1.1k 4.5%) ~/Documents/GitHub/dotfiles on main(3) ↑2↓1 3:45pm
+|moonshotai/kimi-k2.6 (↑1.6M ↓46k 22.3%) in |~/Documents/GitHub/dotfiles (HOSTNAME) on main ↑3 at |4:21pm
 ```
 
 **Left to right:**
-1. **Model name** — e.g. `moonshotai/kimi-k2.6`
-2. **Token stats** — `(↑11k ↓1.1k 4.5%)` in parentheses
-3. **Directory** — `~/Documents/GitHub/dotfiles` (with `~` for `$HOME`)
-4. **Git info** — `on main(3) ↑2↓1` (branch, dirty count, ahead/behind)
-5. **Time** — `3:45pm`
+1. **Model icon + name** — e.g. `|moonshotai/kimi-k2.6`
+2. **Token stats** — `(↑1.6M ↓46k 22.3%)` in parentheses
+3. **Connector** — `in`
+4. **Directory icon + path + hostname** — `|~/Documents/GitHub/dotfiles (HOSTNAME)`
+5. **Git info** — `on main ↑3` (branch, dirty count, ahead/behind)
+6. **Connector** — `at`
+7. **Time icon + time** — `|4:21pm`
 
 ### Color mapping (pi theme tokens)
 
 | Element | Token | Rationale |
 |---------|-------|-----------|
+| `\|` icon placeholders | `accent` | Stand out as visual markers |
 | Model name | `accent` | Primary highlight |
 | Directory | `accent` + `bold` | Primary highlight, stands out |
+| Hostname `(HOSTNAME)` | `dim` | Secondary info, recedes |
 | Git branch | `accent` | Primary highlight |
-| Connectors (`on`) | `dim` | Subtle, recedes |
-| Time | `dim` | Fades into background |
+| Connectors (`in`, `at`, `on`) | `dim` | Subtle, recedes |
+| Time | `accent` | Visible but not urgent |
 | Context % < 70% | plain | No color needed |
 | Context % 70–90% | `warning` | Attention threshold |
 | Context % > 90% | `error` | Urgent threshold |
@@ -81,6 +87,7 @@ moonshotai/kimi-k2.6 (↑11k ↓1.1k 4.5%) ~/Documents/GitHub/dotfiles on main(3
 | `output tokens` | Sum `usage.output` from assistant messages | Cumulative across session |
 | `context %` | `ctx.getContextUsage()?.percent` | Color-coded at 70%/90% thresholds |
 | `model id` | `ctx.model?.id` | |
+| `hostname` | `execSync("hostname -s")` | Short hostname, fallback to `"unknown"` |
 | `time` | `new Date().toLocaleTimeString()` | Updates every minute |
 
 ---
@@ -133,7 +140,18 @@ Time updates every minute via `setInterval` calling `tui.requestRender()`.
 const clockTimer = setInterval(() => tui.requestRender(), 60000);
 ```
 
-#### 4. Context usage with color thresholds
+#### 4. Hostname lookup
+
+```typescript
+let hostname = "unknown";
+try {
+  hostname = execSync("hostname -s", { encoding: "utf-8", timeout: 1000 }).trim();
+} catch {
+  hostname = "unknown";
+}
+```
+
+#### 5. Context usage with color thresholds
 
 ```typescript
 const contextPercent = ctx.getContextUsage()?.percent ?? 0;
@@ -147,16 +165,34 @@ if (contextPercent > 90) {
 }
 ```
 
-#### 5. Width-safe rendering
+#### 6. Icon placeholders
+
+All nerd font icons are represented by `|` (pipe character) wrapped in `accent` color. These must be manually replaced with actual nerd font icons after deployment.
+
+```typescript
+const icon = theme.fg("accent", "|");
+const modelPart = icon + theme.fg("accent", modelName);
+const dirPart = icon + theme.fg("accent", theme.bold(displayCwd)) + theme.fg("dim", ` (${hostname})`);
+const timePart = icon + theme.fg("accent", timeStr);
+```
+
+#### 7. Width-safe rendering
 
 Single line truncated to terminal width:
 
 ```typescript
-const line = modelPart + stats + " " + dirPart + gitPart + timePart;
+const line =
+  modelPart +
+  stats +
+  theme.fg("dim", " in ") +
+  dirPart +
+  gitPart +
+  theme.fg("dim", " at ") +
+  timePart;
 return [truncateToWidth(line, width)];
 ```
 
-#### 6. Cleanup on dispose
+#### 8. Cleanup on dispose
 
 ```typescript
 return {
@@ -190,12 +226,14 @@ return {
 4. Test git branch changes (switch branches, see reactive update)
 5. Test context threshold colors (send large prompts to push context %)
 6. Verify clock updates every minute
-7. Iterate on layout/colors based on real usage
+7. Verify hostname displays correctly
+8. Iterate on layout/colors based on real usage
 
 ---
 
 ## Future Enhancements
 
+- **Nerd font icons** — replace all `|` placeholders with actual icons (must be done manually)
 - **Hardcoded ANSI colors** — swap theme tokens for 256-color escape sequences (e.g. orange `208`, yellow `226`)
 - **Command to toggle footer** — `/footer` to switch between custom and default
 - **Per-project footer configs** — different layouts for different project types
