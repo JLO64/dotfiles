@@ -1,13 +1,18 @@
 {
-  "lastChangelogVersion": "0.67.68",
+  "lastChangelogVersion": "0.68.0",
   "defaultProvider": "openrouter",
-  "defaultModel": "qwen/qwen3.6-plus",
+  "defaultModel": "moonshotai/kimi-k2.6",
   "enabledModels": [
-    "LM Studio/*"
+    "LM Studio/qwen3.6-35b-a3b@5bit",
+    "LM Studio/glm-4.7-flash",
+    "openrouter/z-ai/glm-5.1",
+    "openrouter/moonshotai/kimi-k2.6"
   ],
   "packages": [
     "npm:pi-vim",
-    "npm:pi-rewind"
+    "npm:pi-rewind",
+    "npm:@ogulcancelik/pi-ghostty-theme-sync"
   ],
-  "defaultThinkingLevel": "medium"
+  "defaultThinkingLevel": "medium",
+  "theme": "ghostty-sync-a2ab1bef"
 }
