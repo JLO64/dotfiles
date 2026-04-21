@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
-import os from "node:os";
+
 
 // ─── Token formatting ─────────────────────────────────────────────────────────
 
@@ -161,16 +161,22 @@ export default function (pi: ExtensionAPI) {
 					const stats =
 						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
 
-					// Username
-					const username =
-						os.userInfo().username ||
-						process.env.USER ||
-						process.env.USERNAME ||
-						"user";
-					const userPart = icon + theme.fg("accent", username);
+					// Hostname (short, like `hostname -s`)
+					let hostname = "unknown";
+					try {
+						hostname = execSync("hostname -s", {
+							encoding: "utf-8",
+							timeout: 1000,
+						}).trim();
+					} catch {
+						hostname = "unknown";
+					}
 
 					// Directory
-					const dirPart = icon + theme.fg("accent", theme.bold(displayCwd));
+					const dirPart =
+						icon +
+						theme.fg("accent", theme.bold(displayCwd)) +
+						theme.fg("dim", ` (${hostname})`);
 
 					// Git info
 					let gitPart = "";
@@ -190,8 +196,6 @@ export default function (pi: ExtensionAPI) {
 					const line =
 						modelPart +
 						stats +
-						theme.fg("dim", " via ") +
-						userPart +
 						theme.fg("dim", " in ") +
 						dirPart +
 						gitPart +
