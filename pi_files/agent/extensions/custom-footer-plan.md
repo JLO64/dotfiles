@@ -33,7 +33,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 | Claude OAuth usage % / countdown | **No** — Claude-specific, not available in pi |
 | Session name / auto-compact / extension statuses | **No** — not in the Claude script, not needed here |
 | Cache read/write tokens | **No** — omitted for brevity |
-| Cost display | **No** — omitted for brevity |
+| Cost display | **Yes** — cumulative cost from `usage.cost.total` |
 | Provider prefix | **No** — omitted for brevity |
 | Thinking level | **No** — omitted for brevity |
 | Username / "via" connector | **No** — replaced with hostname in directory |
@@ -51,7 +51,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 
 **Left to right:**
 1. **Model icon + name** — e.g. `|moonshotai/kimi-k2.6`
-2. **Token stats** — `(↑1.6M ↓46k 22.3%)` in parentheses
+2. **Token stats + cost** — `(↑1.6M ↓46k 22.3% $0.042)` in parentheses
 3. **Connector** — `in`
 4. **Directory icon + path + hostname** — `|~/Documents/GitHub/dotfiles (HOSTNAME)`
 5. **Git info** — `on main ↑3` (branch, dirty count, ahead/behind)
@@ -85,6 +85,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 | `git ahead/behind` | `git rev-list --count` | Cached, refreshed every 3s |
 | `input tokens` | Sum `usage.input` from assistant messages | Cumulative across session |
 | `output tokens` | Sum `usage.output` from assistant messages | Cumulative across session |
+| `cost` | Sum `usage.cost.total` from assistant messages | Shown as `$0.042` when non-zero |
 | `context %` | `ctx.getContextUsage()?.percent` | Color-coded at 70%/90% thresholds |
 | `model id` | `ctx.model?.id` | |
 | `hostname` | `execSync("hostname -s")` | Short hostname, fallback to `"unknown"` |

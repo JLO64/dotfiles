@@ -109,13 +109,15 @@ export default function (pi: ExtensionAPI) {
 					const displayCwd =
 						home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 
-					// Token stats (cumulative across all session entries)
+					// Token stats and cost (cumulative across all session entries)
 					let totalInput = 0;
 					let totalOutput = 0;
+					let totalCost = 0;
 					for (const entry of ctx.sessionManager.getEntries()) {
 						if (entry.type === "message" && entry.message.role === "assistant") {
 							totalInput += entry.message.usage.input;
 							totalOutput += entry.message.usage.output;
+							totalCost += entry.message.usage.cost.total;
 						}
 					}
 
@@ -157,7 +159,8 @@ export default function (pi: ExtensionAPI) {
 						contextStr = `${contextPercent.toFixed(1)}%`;
 					}
 
-					const statsParts = [inputStr, outputStr, contextStr].filter(Boolean);
+					const costStr = totalCost > 0 ? `$${totalCost.toFixed(3)}` : "";
+					const statsParts = [inputStr, outputStr, contextStr, costStr].filter(Boolean);
 					const stats =
 						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
 
