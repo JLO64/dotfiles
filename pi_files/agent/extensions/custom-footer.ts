@@ -139,7 +139,7 @@ export default function (pi: ExtensionAPI) {
 					// ─── Build the line ─────────────────────────────────────────
 
 					// Nerd font icon placeholders — replace | with actual icons later
-					const icon = "|";
+					const icon = theme.fg("accent", "|");
 
 					// Model name
 					const modelPart = icon + theme.fg("accent", modelName);
@@ -185,17 +185,17 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Time
-					const timePart = icon + theme.fg("dim", timeStr);
+					const timePart = icon + theme.fg("accent", timeStr);
 
 					const line =
 						modelPart +
 						stats +
-						" via " +
+						theme.fg("dim", " via ") +
 						userPart +
-						" in " +
+						theme.fg("dim", " in ") +
 						dirPart +
 						gitPart +
-						" at " +
+						theme.fg("dim", " at ") +
 						timePart;
 					return [truncateToWidth(line, width)];
 				},
