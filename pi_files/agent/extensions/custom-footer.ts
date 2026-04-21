@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
+import os from "node:os";
 
 // ─── Token formatting ─────────────────────────────────────────────────────────
 
@@ -137,8 +138,11 @@ export default function (pi: ExtensionAPI) {
 
 					// ─── Build the line ─────────────────────────────────────────
 
+					// Nerd font icon placeholders — replace | with actual icons later
+					const icon = "|";
+
 					// Model name
-					const modelPart = theme.fg("accent", modelName);
+					const modelPart = icon + theme.fg("accent", modelName);
 
 					// Stats in parentheses: (↑11k ↓1.1k 4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
@@ -157,8 +161,16 @@ export default function (pi: ExtensionAPI) {
 					const stats =
 						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
 
+					// Username
+					const username =
+						os.userInfo().username ||
+						process.env.USER ||
+						process.env.USERNAME ||
+						"user";
+					const userPart = icon + theme.fg("accent", username);
+
 					// Directory
-					const dirPart = theme.fg("accent", theme.bold(displayCwd));
+					const dirPart = icon + theme.fg("accent", theme.bold(displayCwd));
 
 					// Git info
 					let gitPart = "";
@@ -173,9 +185,18 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Time
-					const timePart = ` ${theme.fg("dim", timeStr)}`;
+					const timePart = icon + theme.fg("dim", timeStr);
 
-					const line = modelPart + stats + " " + dirPart + gitPart + timePart;
+					const line =
+						modelPart +
+						stats +
+						" via " +
+						userPart +
+						" in " +
+						dirPart +
+						gitPart +
+						" at " +
+						timePart;
 					return [truncateToWidth(line, width)];
 				},
 			};
