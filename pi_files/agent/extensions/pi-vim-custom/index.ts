@@ -136,7 +136,6 @@ export class ModalEditor extends CustomEditor {
   private readonly redoStack: EditorSnapshot[] = [];
   private currentTransition: TransitionState = "none";
   private onChangeHooked: boolean = false;
-  private readonly borderTheme: any;
   private readonly labelColorizers: { insert: (s: string) => string; normal: (s: string) => string } | null;
 
   // Unnamed register
@@ -152,7 +151,6 @@ export class ModalEditor extends CustomEditor {
     labelColorizers?: { insert: (s: string) => string; normal: (s: string) => string } | null,
   ) {
     super(tui, theme, kb);
-    this.borderTheme = theme;
     this.labelColorizers = labelColorizers ?? null;
   }
 
@@ -2229,12 +2227,11 @@ export class ModalEditor extends CustomEditor {
     const labelWidth = visibleWidth(rawLabel);
     const last = lines.length - 1;
 
-    // Mode color key (same as label colorizer scheme)
-    const borderColor = this.mode === "insert" ? "borderMuted" : "borderAccent";
+    // Strip ANSI codes and re-colorize with the mode colorizer
     const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
     const recolorBorder = (s: string) => {
       const stripped = stripAnsi(s);
-      return this.borderTheme.fg(borderColor, `\x1b[7m${stripped}\x1b[27m`);
+      return colorize ? colorize(stripped) : stripped;
     };
 
     // Re-colorize top border with mode color
