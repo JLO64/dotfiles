@@ -145,7 +145,7 @@ export default function (pi: ExtensionAPI) {
 					const icon = theme.fg("accent", "|");
 
 					// Model name
-					const modelPart = icon + theme.fg("accent", modelName);
+					const modelPart = theme.fg("accent", " ") + theme.fg("accent", modelName);
 
 					// Stats in parentheses: (4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
@@ -178,9 +178,9 @@ export default function (pi: ExtensionAPI) {
 
 					// Directory
 					const dirPart =
-						icon +
-						theme.fg("accent", theme.bold(displayCwd)) +
-						theme.fg("dim", ` (${hostname})`);
+						theme.fg("accent", " ") +
+						theme.fg("accent", theme.fg("accent", displayCwd)) +
+						` (${hostname})`;
 
 					// Git info
 					let gitPart = "";
@@ -191,11 +191,11 @@ export default function (pi: ExtensionAPI) {
 						if (cachedGit.behind > 0) trackParts.push(`↓${cachedGit.behind}`);
 						const trackStr =
 							trackParts.length > 0 ? ` ${trackParts.join("")}` : "";
-						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", `${cachedGit.branch}${dirtyStr}${trackStr}`)}`;
+						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", "")} ${theme.fg("accent", `${cachedGit.branch}${dirtyStr}${trackStr}`)}`;
 					}
 
 					// Time
-					const timePart = icon + theme.fg("accent", timeStr);
+					const timePart = theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr);
 
 					const line =
 						modelPart +
