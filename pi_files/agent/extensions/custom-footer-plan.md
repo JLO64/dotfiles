@@ -33,7 +33,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 | Claude OAuth usage % / countdown | **No** — Claude-specific, not available in pi |
 | Session name / auto-compact / extension statuses | **No** — not in the Claude script, not needed here |
 | Cache read/write tokens | **No** — omitted for brevity |
-| Cost display | **Yes** — cumulative cost from `usage.cost.total` |
+| Cost display | **Yes** — cumulative cost from `usage.cost.total` (pi-ai's client-side estimate) |
 | Provider prefix | **No** — omitted for brevity |
 | Thinking level | **No** — omitted for brevity |
 | Username / "via" connector | **No** — replaced with hostname in directory |
@@ -85,7 +85,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 | `git ahead/behind` | `git rev-list --count` | Cached, refreshed every 3s |
 | `input tokens` | Sum `usage.input` from assistant messages | Cumulative across session |
 | `output tokens` | Sum `usage.output` from assistant messages | Cumulative across session |
-| `cost` | Sum `usage.cost.total` from assistant messages, with OpenRouter real-cost fallback | See "OpenRouter cost fetching" below |
+| `cost` | Sum `usage.cost.total` from assistant messages | pi-ai's client-side estimate |
 | `context %` | `ctx.getContextUsage()?.percent` | Color-coded at 70%/90% thresholds |
 | `model id` | `ctx.model?.id` | |
 | `hostname` | `execSync("hostname -s")` | Short hostname, fallback to `"unknown"` |
@@ -193,80 +193,7 @@ const line =
 return [truncateToWidth(line, width)];
 ```
 
-#### 8. OpenRouter cost fetching (async fallback)
-
-**Problem:** pi-ai computes cost client-side from a static model registry (`models.generated.ts`). For some OpenRouter models (e.g. `moonshotai/kimi-k2.6`), the registry has zeroed or missing costs, so `usage.cost.total` is always `0`.
-
-**Solution:** After each assistant turn, query OpenRouter's `/api/v1/generation?id={responseId}` endpoint to fetch the actual cost charged to the account.
-
-**Architecture:**
-
-```typescript
-// Module-level cache: responseId -> real cost
-const openRouterCosts = new Map<string, number>();
-
-// On turn_end, fire an async fetch (with delay + retries) and cache the result
-pi.on("turn_end", async (event, ctx) => {
-  const msg = event.message;
-  if (msg.role !== "assistant") return;
-  const am = msg as AssistantMessage;
-  if (!am.responseId) return;
-  if (am.provider !== "openrouter") return;
-  if (openRouterCosts.has(am.responseId)) return;
-
-  const apiKey = await ctx.modelRegistry.getApiKeyForProvider("openrouter");
-  if (!apiKey) return;
-
-  const fetchCost = async (attempt: number): Promise<void> => {
-    try {
-      const res = await fetch(
-        `https://openrouter.ai/api/v1/generation?id=${am.responseId}`,
-        { headers: { Authorization: `Bearer ${apiKey}` } },
-      );
-      if (!res.ok) {
-        if (res.status === 404 && attempt < 3) {
-          setTimeout(() => fetchCost(attempt + 1), attempt * 2000);
-        }
-        return;
-      }
-      const json = await res.json();
-      const cost = json.data?.total_cost;
-      if (typeof cost === "number") {
-        openRouterCosts.set(am.responseId, cost);
-        footerRequestRender?.(); // trigger footer redraw
-      }
-    } catch {
-      // Silently ignore fetch failures so they don't block the agent loop.
-    }
-  };
-  setTimeout(() => fetchCost(1), 2000);
-});
-```
-
-**Footer render integration:**
-
-```typescript
-for (const entry of ctx.sessionManager.getBranch()) {
-  if (entry.type === "message" && entry.message.role === "assistant") {
-    const m = entry.message as AssistantMessage;
-    totalInput += m.usage.input;
-    totalOutput += m.usage.output;
-    // Prefer fetched real cost, fall back to pi-ai's client-side estimate
-    const realCost = m.responseId ? openRouterCosts.get(m.responseId) : undefined;
-    totalCost += realCost ?? m.usage.cost?.total ?? 0;
-  }
-}
-```
-
-**Key details:**
-- `responseId` is preserved by pi-ai's `openai-completions` provider (`output.responseId ||= chunk.id`), so every assistant message carries the OpenRouter completion ID.
-- A **2000ms initial delay** is required because the generation record isn't immediately available after the stream ends. A single 800ms attempt was observed to consistently 404.
-- **Up to 3 retries** with exponential backoff (2s, 4s, 6s) on 404 errors, because the record can take several seconds to propagate on OpenRouter's side.
-- The cache is **cleared on `session_start`** to avoid leaking costs across sessions.
-- For non-OpenRouter providers, the code falls back to `usage.cost.total` (the existing behavior).
-- The fetch is **fire-and-forget** — failures are silently ignored so they don't block the agent loop.
-
-#### 9. Cleanup on dispose
+#### 8. Cleanup on dispose
 
 ```typescript
 return {

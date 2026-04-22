@@ -3,13 +3,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
 
-// ─── OpenRouter real-cost cache ───────────────────────────────────────────────
-
-/** Maps OpenRouter completion IDs (responseId) to actual USD cost. */
-const openRouterCosts = new Map<string, number>();
-/** Reference to the current footer's requestRender function, set on session_start. */
-let footerRequestRender: (() => void) | null = null;
-
 // ─── Token formatting ─────────────────────────────────────────────────────────
 
 function formatTokens(count: number): string {
@@ -81,54 +74,8 @@ function getGitInfo(cwd: string): GitInfo | null {
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	// Fetch real costs from OpenRouter after each assistant turn.
-	// pi-ai computes cost client-side from a static model registry, which is
-	// often zeroed for OpenRouter models. OpenRouter's /generation endpoint
-	// returns the actual charged cost per completion.
-	pi.on("turn_end", async (event, ctx) => {
-		const msg = event.message;
-		if (msg.role !== "assistant") return;
-		const am = msg as AssistantMessage;
-		if (!am.responseId) return;
-		if (am.provider !== "openrouter") return;
-		if (openRouterCosts.has(am.responseId)) return;
-
-		const apiKey = await ctx.modelRegistry.getApiKeyForProvider("openrouter");
-		if (!apiKey) return;
-
-		// Fetch with retries: OpenRouter's generation record can take several
-		// seconds to propagate, and a single attempt often 404s.
-		const fetchCost = async (attempt: number): Promise<void> => {
-			try {
-				const res = await fetch(
-					`https://openrouter.ai/api/v1/generation?id=${am.responseId}`,
-					{ headers: { Authorization: `Bearer ${apiKey}` } },
-				);
-				if (!res.ok) {
-					if (res.status === 404 && attempt < 3) {
-						setTimeout(() => fetchCost(attempt + 1), attempt * 2000);
-					}
-					return;
-				}
-				const json = await res.json();
-				const cost = json.data?.total_cost;
-				if (typeof cost === "number") {
-					openRouterCosts.set(am.responseId, cost);
-					footerRequestRender?.();
-				}
-			} catch {
-				// Silently ignore fetch failures so they don't block the agent loop.
-			}
-		};
-		setTimeout(() => fetchCost(1), 2000);
-	});
-
 	pi.on("session_start", async (_event, ctx) => {
-		// Clear cached costs for new sessions so we don't leak across sessions.
-		openRouterCosts.clear();
-
 		ctx.ui.setFooter((tui, theme, footerData) => {
-			footerRequestRender = () => tui.requestRender();
 			const cwd = ctx.sessionManager.getCwd();
 
 			// Cache git info so render() stays fast (TUI calls render frequently)
@@ -171,9 +118,7 @@ export default function (pi: ExtensionAPI) {
 							const m = entry.message as AssistantMessage;
 							totalInput += m.usage.input;
 							totalOutput += m.usage.output;
-							// Prefer fetched real cost from OpenRouter, fall back to pi-ai estimate
-							const realCost = m.responseId ? openRouterCosts.get(m.responseId) : undefined;
-							totalCost += realCost ?? m.usage.cost?.total ?? 0;
+							totalCost += m.usage.cost?.total ?? 0;
 						}
 					}
 
