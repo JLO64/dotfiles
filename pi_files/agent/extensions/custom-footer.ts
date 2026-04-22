@@ -223,6 +223,7 @@ export default function (pi: ExtensionAPI) {
 					} catch {
 						hostname = "unknown";
 					}
+					if (/macbook/i.test(hostname)) hostname = "MacBook";
 
 					// Directory
 					const dirPart =
@@ -238,7 +239,7 @@ export default function (pi: ExtensionAPI) {
 						if (cachedGit.ahead > 0) trackParts.push(`↑${cachedGit.ahead}`);
 						if (cachedGit.behind > 0) trackParts.push(`↓${cachedGit.behind}`);
 						const trackStr =
-							trackParts.length > 0 ? ` ${trackParts.join("")}` : "";
+							trackParts.length > 0 ? `${trackParts.join("")}` : "";
 						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", "")} ${theme.fg("accent", cachedGit.branch)}${dirtyStr}${trackStr}`;
 					}
 
