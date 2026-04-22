@@ -33,7 +33,7 @@ The built-in `FooterComponent` renders up to 3 lines:
 | Claude OAuth usage % / countdown | **No** — Claude-specific, not available in pi |
 | Session name / auto-compact / extension statuses | **No** — not in the Claude script, not needed here |
 | Cache read/write tokens | **No** — omitted for brevity |
-| Cost display | **Yes** — cumulative cost from `usage.cost.total` (pi-ai's client-side estimate) |
+| Cost display | **Yes** — cumulative cost from `usage.cost.total` (pi-ai's client-side estimate), rounded up to 2 decimal places |
 | Provider prefix | **No** — omitted for brevity |
 | Thinking level | **No** — omitted for brevity |
 | Username / "via" connector | **No** — replaced with hostname in directory |
