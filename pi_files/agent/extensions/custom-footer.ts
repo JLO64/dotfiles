@@ -147,7 +147,7 @@ export default function (pi: ExtensionAPI) {
 					// Model name
 					const modelPart = icon + theme.fg("accent", modelName);
 
-					// Stats in parentheses: (↑11k ↓1.1k 4.5%)
+					// Stats in parentheses: (4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
 					const outputStr = totalOutput > 0 ? `↓${formatTokens(totalOutput)}` : "";
 
@@ -161,7 +161,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
-					const statsParts = [inputStr, outputStr, contextStr, costStr].filter(Boolean);
+					const statsParts = [contextStr, costStr].filter(Boolean);
 					const stats =
 						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
 
