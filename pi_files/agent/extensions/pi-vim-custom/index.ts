@@ -137,6 +137,7 @@ export class ModalEditor extends CustomEditor {
   private currentTransition: TransitionState = "none";
   private onChangeHooked: boolean = false;
   private readonly labelColorizers: { insert: (s: string) => string; normal: (s: string) => string } | null;
+  private readonly borderColorizers: { insert: (s: string) => string; normal: (s: string) => string } | null;
 
   // Unnamed register
   private unnamedRegister: string = "";
@@ -149,9 +150,11 @@ export class ModalEditor extends CustomEditor {
     theme: any,
     kb: any,
     labelColorizers?: { insert: (s: string) => string; normal: (s: string) => string } | null,
+    borderColorizers?: { insert: (s: string) => string; normal: (s: string) => string } | null,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
+    this.borderColorizers = borderColorizers ?? null;
   }
 
   // Test seams
@@ -2220,10 +2223,13 @@ export class ModalEditor extends CustomEditor {
     if (lines.length === 0) return lines;
 
     const rawLabel = this.getModeLabel();
-    const colorize = this.labelColorizers
+    const labelColorize = this.labelColorizers
       ? (this.mode === "insert" ? this.labelColorizers.insert : this.labelColorizers.normal)
       : null;
-    const label = colorize ? colorize(rawLabel) : rawLabel;
+    const borderColorize = this.borderColorizers
+      ? (this.mode === "insert" ? this.borderColorizers.insert : this.borderColorizers.normal)
+      : null;
+    const label = labelColorize ? labelColorize(rawLabel) : rawLabel;
     const labelWidth = visibleWidth(rawLabel);
     const last = lines.length - 1;
 
@@ -2231,20 +2237,20 @@ export class ModalEditor extends CustomEditor {
     const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
     const recolorBorder = (s: string) => {
       const stripped = stripAnsi(s);
-      return colorize ? colorize(stripped) : stripped;
+      return borderColorize ? borderColorize(stripped) : stripped;
     };
 
-    // Re-colorize top border with mode color
-    lines[0] = recolorBorder(lines[0]!);
-
-    // Bottom border: label at left + recolored dashes at right
+    // Top border: label at left + recolored dashes at right
     if (width > labelWidth) {
-      const bottomRaw = stripAnsi(lines[last]!);
-      const dashes = truncateToWidth(bottomRaw, width - labelWidth, "");
-      lines[last] = label + recolorBorder(dashes);
+      const topRaw = stripAnsi(lines[0]!);
+      const dashes = truncateToWidth(topRaw, width - labelWidth, "");
+      lines[0] = label + recolorBorder(dashes);
     } else {
-      lines[last] = truncateToWidth(label, width, "");
+      lines[0] = truncateToWidth(label, width, "");
     }
+
+    // Bottom border: just recolored
+    lines[last] = recolorBorder(lines[last]!);
 
     return lines;
   }
@@ -2280,10 +2286,14 @@ export class ModalEditor extends CustomEditor {
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     const t = ctx.ui.theme;
-    const colorizers = t ? {
-      insert: (s: string) => t.fg("borderMuted", `\x1b[7m${s}\x1b[27m`),
-      normal: (s: string) => t.fg("borderAccent", `\x1b[7m${s}\x1b[27m`),
+    const labelColorizers = t ? {
+      insert: (s: string) => t.fg("borderAccent", `\x1b[7m${s}\x1b[27m`),
+      normal: (s: string) => t.fg("borderMuted", `\x1b[7m${s}\x1b[27m`),
     } : null;
-    ctx.ui.setEditorComponent((tui, theme, kb) => new ModalEditor(tui, theme, kb, colorizers));
+    const borderColorizers = t ? {
+      insert: (s: string) => t.fg("borderAccent", s),
+      normal: (s: string) => t.fg("borderMuted", s),
+    } : null;
+    ctx.ui.setEditorComponent((tui, theme, kb) => new ModalEditor(tui, theme, kb, labelColorizers, borderColorizers));
   });
 }
