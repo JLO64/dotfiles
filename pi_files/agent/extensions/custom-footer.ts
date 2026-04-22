@@ -201,9 +201,17 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
-					const statsParts = [contextStr, costStr].filter(Boolean);
+
+					// Thinking level
+					const thinkingLevel = pi.getThinkingLevel();
+					const thinkingLabel =
+						thinkingLevel === "off"
+							? "Off"
+							: thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1);
+
+					const statsParts = [thinkingLabel, contextStr, costStr].filter(Boolean);
 					const stats =
-						statsParts.length > 0 ? `(${statsParts.join(" ")})` : "";
+						statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
 
 					// Hostname (short, like `hostname -s`)
 					let hostname = "unknown";
