@@ -160,7 +160,7 @@ export default function (pi: ExtensionAPI) {
 						contextStr = `${contextPercent.toFixed(1)}%`;
 					}
 
-					const costStr = totalCost > 0 ? `$${totalCost.toFixed(3)}` : "$0.000";
+					const costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
 					const statsParts = [inputStr, outputStr, contextStr, costStr].filter(Boolean);
 					const stats =
 						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
