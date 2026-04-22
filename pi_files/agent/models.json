@@ -11,16 +11,23 @@
       "models": [
         {
           "id": "qwen3.6-35b-a3b@5bit",
-          "name": "Qwen3.6 35b A3B (5Bit)",
+          "name": "Qwen3.6 35B A3B (5Bit)",
+          "input": ["text", "image"],
+          "contextWindow": 36000,
+          "reasoning": true
+        },
+        {
+          "id": "qwen3.6-27b",
+          "name": "Qwen3.6 27B (6Bit)",
           "input": ["text", "image"],
           "contextWindow": 36000,
           "reasoning": true
         },
         {
           "id": "glm-4.7-flash",
-          "name": "GLM 4.7 Flash", 
+          "name": "GLM 4.7 Flash (6Bit)", 
           "input": ["text"],
-          "contextWindow": 48000,
+          "contextWindow": 36000,
           "reasoning": true
         }
       ]
