@@ -71,6 +71,33 @@ function getGitInfo(cwd: string): GitInfo | null {
 	}
 }
 
+// ─── Path display formatting ──────────────────────────────────────────────────
+
+function truncateDisplayPath(
+	cwd: string,
+	home: string,
+	maxSegments: number = 3,
+): string {
+	let segments: string[];
+	let prefix: string;
+
+	if (home && cwd.startsWith(home)) {
+		prefix = "~/";
+		segments = cwd.slice(home.length).split("/").filter(Boolean);
+	} else if (cwd.startsWith("/")) {
+		prefix = "/";
+		segments = cwd.split("/").filter(Boolean);
+	} else {
+		segments = cwd.split("/").filter(Boolean);
+		prefix = "";
+	}
+
+	if (segments.length <= maxSegments) {
+		return prefix + segments.join("/");
+	}
+	return prefix + ".../" + segments.slice(-maxSegments).join("/");
+}
+
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -130,8 +157,7 @@ export default function (pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					const home = process.env.HOME || process.env.USERPROFILE || "";
-					const displayCwd =
-						home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
+					const displayCwd = truncateDisplayPath(cwd, home);
 
 					// Token stats and cost (cumulative across the active branch only)
 					let totalInput = 0;
@@ -223,7 +249,7 @@ export default function (pi: ExtensionAPI) {
 					} catch {
 						hostname = "unknown";
 					}
-					if (/macbook/i.test(hostname)) hostname = "MacBook";
+					if (/macbook/i.test(hostname)) hostname = "MBP";
 
 					// Directory
 					const dirPart =
