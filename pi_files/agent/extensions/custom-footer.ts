@@ -137,7 +137,7 @@ export default function (pi: ExtensionAPI) {
 							minute: "2-digit",
 							hour12: true,
 						})
-						.toLowerCase();
+						.toLowerCase().replace(" ", "");
 
 					// ─── Build the line ─────────────────────────────────────────
 
@@ -163,7 +163,7 @@ export default function (pi: ExtensionAPI) {
 					const costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
 					const statsParts = [contextStr, costStr].filter(Boolean);
 					const stats =
-						statsParts.length > 0 ? ` (${statsParts.join(" ")})` : "";
+						statsParts.length > 0 ? `(${statsParts.join(" ")})` : "";
 
 					// Hostname (short, like `hostname -s`)
 					let hostname = "unknown";
@@ -180,7 +180,7 @@ export default function (pi: ExtensionAPI) {
 					const dirPart =
 						theme.fg("accent", " ") +
 						theme.fg("accent", theme.fg("accent", displayCwd)) +
-						` (${hostname})`;
+						`(${hostname})`;
 
 					// Git info
 					let gitPart = "";
@@ -191,7 +191,7 @@ export default function (pi: ExtensionAPI) {
 						if (cachedGit.behind > 0) trackParts.push(`↓${cachedGit.behind}`);
 						const trackStr =
 							trackParts.length > 0 ? ` ${trackParts.join("")}` : "";
-						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", "")} ${theme.fg("accent", cachedGit.branch)} ${dirtyStr}${trackStr}`;
+						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", "")} ${theme.fg("accent", cachedGit.branch)}${dirtyStr}${trackStr}`;
 					}
 
 					// Time
