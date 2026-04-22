@@ -74,8 +74,31 @@ function getGitInfo(cwd: string): GitInfo | null {
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	// Shared state for the active session's footer timer
+	const timerState = {
+		lastCompletionTime: Date.now(),
+		isStreaming: false,
+		requestRender: () => {},
+	};
+
+	pi.on("agent_start", async () => {
+		timerState.isStreaming = true;
+		timerState.requestRender();
+	});
+
+	pi.on("agent_end", async () => {
+		timerState.isStreaming = false;
+		timerState.lastCompletionTime = Date.now();
+		timerState.requestRender();
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setFooter((tui, theme, footerData) => {
+			// Reset timer state for this session
+			timerState.lastCompletionTime = Date.now();
+			timerState.isStreaming = false;
+			timerState.requestRender = () => tui.requestRender();
+
 			const cwd = ctx.sessionManager.getCwd();
 
 			// Cache git info so render() stays fast (TUI calls render frequently)
@@ -94,14 +117,15 @@ export default function (pi: ExtensionAPI) {
 				tui.requestRender();
 			});
 
-			// Refresh clock every minute
-			const clockTimer = setInterval(() => tui.requestRender(), 60000);
+			// Refresh clock every 10 seconds (for the stopwatch timer)
+			const clockTimer = setInterval(() => tui.requestRender(), 10000);
 
 			return {
 				dispose() {
 					clearInterval(gitTimer);
 					clearInterval(clockTimer);
 					branchUnsub();
+					timerState.requestRender = () => {};
 				},
 				invalidate() {},
 				render(width: number): string[] {
@@ -138,6 +162,22 @@ export default function (pi: ExtensionAPI) {
 							hour12: true,
 						})
 						.toLowerCase().replace(" ", "");
+
+					// Elapsed time since last completion
+					let elapsedStr = "";
+					if (timerState.isStreaming) {
+						elapsedStr = "(...)";
+					} else {
+						const elapsedMs = Date.now() - timerState.lastCompletionTime;
+						const elapsedSec = Math.floor(elapsedMs / 1000);
+						if (elapsedSec < 60) {
+							elapsedStr = `(${elapsedSec}s)`;
+						} else {
+							const minutes = Math.floor(elapsedSec / 60);
+							const seconds = elapsedSec % 60;
+							elapsedStr = `(${minutes}m${seconds}s)`;
+						}
+					}
 
 					// ─── Build the line ─────────────────────────────────────────
 
@@ -195,7 +235,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Time
-					const timePart = theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr);
+					const timePart = theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr) + elapsedStr;
 
 					const line =
 						modelPart +
