@@ -28,6 +28,7 @@ function getGitInfo(cwd: string): GitInfo | null {
 			cwd,
 			encoding: "utf-8",
 			timeout: 1000,
+			stdio: ["pipe", "pipe", "ignore"],
 		}).trim();
 		if (!branch) return null;
 
@@ -35,6 +36,7 @@ function getGitInfo(cwd: string): GitInfo | null {
 			cwd,
 			encoding: "utf-8",
 			timeout: 1000,
+			stdio: ["pipe", "pipe", "ignore"],
 		});
 		const dirty = porcelain
 			.split("\n")
@@ -49,6 +51,7 @@ function getGitInfo(cwd: string): GitInfo | null {
 						cwd,
 						encoding: "utf-8",
 						timeout: 1000,
+						stdio: ["pipe", "pipe", "ignore"],
 					}).trim(),
 					10,
 				) || 0;
@@ -58,6 +61,7 @@ function getGitInfo(cwd: string): GitInfo | null {
 						cwd,
 						encoding: "utf-8",
 						timeout: 1000,
+						stdio: ["pipe", "pipe", "ignore"],
 					}).trim(),
 					10,
 				) || 0;
