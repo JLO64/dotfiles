@@ -9,7 +9,6 @@
     "openrouter/moonshotai/kimi-k2.6"
   ],
   "packages": [
-    "npm:pi-vim",
     "npm:pi-rewind",
     "npm:@ogulcancelik/pi-ghostty-theme-sync"
   ],

@@ -2283,17 +2283,21 @@ export class ModalEditor extends CustomEditor {
   }
 }
 
+// #a7ced7 → rgb(167, 206, 215), #de9e99 → rgb(222, 158, 153)
+const INSERT_FG = "\x1b[38;2;167;206;215m";
+const NORMAL_FG = "\x1b[38;2;222;158;153m";
+const RESET = "\x1b[0m";
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
-    const t = ctx.ui.theme;
-    const labelColorizers = t ? {
-      insert: (s: string) => t.fg("borderAccent", `\x1b[7m${s}\x1b[27m`),
-      normal: (s: string) => t.fg("borderMuted", `\x1b[7m${s}\x1b[27m`),
-    } : null;
-    const borderColorizers = t ? {
-      insert: (s: string) => t.fg("borderAccent", s),
-      normal: (s: string) => t.fg("borderMuted", s),
-    } : null;
+    const labelColorizers = {
+      insert: (s: string) => `${INSERT_FG}\x1b[7m${s}\x1b[27m${RESET}`,
+      normal: (s: string) => `${NORMAL_FG}\x1b[7m${s}\x1b[27m${RESET}`,
+    };
+    const borderColorizers = {
+      insert: (s: string) => `${INSERT_FG}${s}${RESET}`,
+      normal: (s: string) => `${NORMAL_FG}${s}${RESET}`,
+    };
     ctx.ui.setEditorComponent((tui, theme, kb) => new ModalEditor(tui, theme, kb, labelColorizers, borderColorizers));
   });
 }
