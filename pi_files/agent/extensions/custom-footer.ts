@@ -147,8 +147,11 @@ export default function (pi: ExtensionAPI) {
 			// Refresh clock every 10 seconds (for the stopwatch timer)
 			const clockTimer = setInterval(() => tui.requestRender(), 10000);
 
+			let disposed = false;
+
 			return {
 				dispose() {
+					disposed = true;
 					clearInterval(gitTimer);
 					clearInterval(clockTimer);
 					branchUnsub();
@@ -156,6 +159,15 @@ export default function (pi: ExtensionAPI) {
 				},
 				invalidate() {},
 				render(width: number): string[] {
+					if (disposed) return [];
+					try {
+						// Access sessionManager once to detect stale context early
+						ctx.sessionManager;
+					} catch {
+						disposed = true;
+						return [];
+					}
+
 					const home = process.env.HOME || process.env.USERPROFILE || "";
 					const displayCwd = truncateDisplayPath(cwd, home);
 
