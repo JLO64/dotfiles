@@ -109,6 +109,7 @@ export default function (pi: ExtensionAPI) {
 	const timerState = {
 		lastCompletionTime: Date.now(),
 		isStreaming: false,
+		hasResponded: false,
 		requestRender: () => {},
 	};
 
@@ -119,6 +120,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_end", async () => {
 		timerState.isStreaming = false;
+		timerState.hasResponded = true;
 		timerState.lastCompletionTime = Date.now();
 		timerState.requestRender();
 	});
@@ -128,6 +130,7 @@ export default function (pi: ExtensionAPI) {
 			// Reset timer state for this session
 			timerState.lastCompletionTime = Date.now();
 			timerState.isStreaming = false;
+			timerState.hasResponded = false;
 			timerState.requestRender = () => tui.requestRender();
 
 			const cwd = ctx.sessionManager.getCwd();
@@ -209,7 +212,7 @@ export default function (pi: ExtensionAPI) {
 					let elapsedStr = "";
 					if (timerState.isStreaming) {
 						elapsedStr = "(...)";
-					} else {
+					} else if (timerState.hasResponded) {
 						const elapsedMs = Date.now() - timerState.lastCompletionTime;
 						const elapsedSec = Math.floor(elapsedMs / 1000);
 						if (elapsedSec < 60) {
