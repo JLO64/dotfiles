@@ -3,6 +3,13 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
 
+// ─── Streaming state ─────────────────────────────────────────────────────────
+
+const streamingState = {
+	streamedChars: 0,
+	isStreaming: false,
+};
+
 // ─── Token formatting ─────────────────────────────────────────────────────────
 
 function formatTokens(count: number): string {
@@ -108,28 +115,38 @@ export default function (pi: ExtensionAPI) {
 	// Shared state for the active session's footer timer
 	const timerState = {
 		lastCompletionTime: Date.now(),
-		isStreaming: false,
 		hasResponded: false,
 		requestRender: () => {},
 	};
 
 	pi.on("agent_start", async () => {
-		timerState.isStreaming = true;
+		streamingState.isStreaming = true;
 		timerState.requestRender();
 	});
 
 	pi.on("agent_end", async () => {
-		timerState.isStreaming = false;
+		streamingState.isStreaming = false;
+		streamingState.streamedChars = 0;
 		timerState.hasResponded = true;
 		timerState.lastCompletionTime = Date.now();
 		timerState.requestRender();
+	});
+
+	pi.on("message_start", async () => {
+		streamingState.streamedChars = 0;
+	});
+
+	pi.on("message_update", async (event) => {
+		if (event.assistantMessageEvent?.type === "text_delta" || event.assistantMessageEvent?.type === "thinking_delta") {
+			streamingState.streamedChars += event.assistantMessageEvent.delta.length;
+			timerState.requestRender();
+		}
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			// Reset timer state for this session
 			timerState.lastCompletionTime = Date.now();
-			timerState.isStreaming = false;
 			timerState.hasResponded = false;
 			timerState.requestRender = () => tui.requestRender();
 
@@ -191,6 +208,21 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
+					// Streaming cost estimation
+					let streamingCost = 0;
+					if (streamingState.isStreaming && streamingState.streamedChars > 0 && ctx.model) {
+						// Rough estimate: ~4 chars per token
+						const estimatedOutputTokens = Math.ceil(streamingState.streamedChars / 4);
+						// Cost is per million tokens, so divide by 1,000,000
+						const costPerMillion = ctx.model.cost?.output ?? 0;
+						const costPerToken = costPerMillion / 1_000_000;
+						streamingCost = estimatedOutputTokens * costPerToken;
+						// Debug: log values if streaming cost seems wrong
+						if (streamingCost > 1) {
+							console.error(`[DEBUG] streamedChars=${streamingState.streamedChars}, estimatedTokens=${estimatedOutputTokens}, costPerMillion=${costPerMillion}, streamingCost=${streamingCost}`);
+						}
+					}
+
 					// Context usage
 					const contextUsage = ctx.getContextUsage();
 					const contextPercent = contextUsage?.percent ?? 0;
@@ -210,7 +242,7 @@ export default function (pi: ExtensionAPI) {
 
 					// Elapsed time since last completion
 					let elapsedStr = "";
-					if (timerState.isStreaming) {
+					if (streamingState.isStreaming) {
 						elapsedStr = "(...)";
 					} else if (timerState.hasResponded) {
 						const elapsedMs = Date.now() - timerState.lastCompletionTime;
@@ -245,7 +277,16 @@ export default function (pi: ExtensionAPI) {
 						contextStr = `${contextPercent.toFixed(1)}%`;
 					}
 
-					const costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
+					// Cost display: shows streaming estimate during streaming
+					let costStr: string;
+					if (streamingState.isStreaming && streamingCost > 0) {
+						const baseCost = totalCost > 0 ? totalCost : 0;
+						const estimate = Math.ceil(streamingCost * 100) / 100;
+						const baseFormatted = baseCost > 0 ? `$${(Math.ceil(baseCost * 100) / 100).toFixed(2)}` : "$0.00";
+						costStr = `${baseFormatted} + ~$${estimate.toFixed(2)}`;
+					} else {
+						costStr = totalCost > 0 ? `$${(Math.ceil(totalCost * 100) / 100).toFixed(2)}` : "$0.00";
+					}
 
 					// Thinking level
 					const thinkingLevel = pi.getThinkingLevel();
