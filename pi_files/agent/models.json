@@ -20,7 +20,7 @@
           "id": "qwen3.6-27b",
           "name": "Qwen3.6 27B (6Bit)",
           "input": ["text", "image"],
-          "contextWindow": 22000,
+          "contextWindow": 20000,
           "reasoning": true
         },
         {
