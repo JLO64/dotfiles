@@ -6,11 +6,10 @@
     "LM Studio/qwen3.6-27b",
     "openrouter/deepseek/deepseek-v4-pro",
     "openrouter/deepseek/deepseek-v4-flash",
-    "LM Studio/glm-4.7-flash",
-    "openrouter/moonshotai/kimi-k2.6"
+    "openrouter/moonshotai/kimi-k2.6",
+    "LM Studio/qwen3.5-9b-deepseek-v4-flash"
   ],
   "packages": [
-    "npm:pi-rewind",
     "npm:@ogulcancelik/pi-ghostty-theme-sync",
     "npm:@ogulcancelik/pi-web-browse"
   ],
