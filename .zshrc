@@ -64,7 +64,6 @@ ZSH_THEME_GIT_PROMPT_PREFIX=" %F{239}on%f %F{255}"
 ZSH_THEME_GIT_PROMPT_SUFFIX="%f"
 ZSH_THEME_GIT_PROMPT_DIRTY="%F{202}✘✘✘"
 ZSH_THEME_GIT_PROMPT_CLEAN="%F{40}✔"
-# Global variable to store git fetch message
 GIT_FETCH_MESSAGE=""
 
 # precmd hook to check and run git fetch before each prompt
@@ -116,6 +115,20 @@ function check_git_fetch {
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd check_git_fetch
 
+# Base prompt without the fetch message line
+BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
+╰─$(virtualenv_info)○ '
+
+# precmd hook to prepend the git fetch message as the first line of the prompt
+function set_prompt_with_fetch {
+  if [[ -n $GIT_FETCH_MESSAGE ]]; then
+    PROMPT="$GIT_FETCH_MESSAGE"$'\n'"$BASE_PROMPT"
+  else
+    PROMPT="$BASE_PROMPT"
+  fi
+}
+add-zsh-hook precmd set_prompt_with_fetch
+
 function git_branch_info {
     local branch=$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)
     if [[ -n $branch ]]; then
@@ -146,9 +159,7 @@ function git_branch_info {
 #   OS_NAME=""
 # fi
 
-PROMPT='${GIT_FETCH_MESSAGE:+$GIT_FETCH_MESSAGE
-╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
-╰─$(virtualenv_info)○ '
+PROMPT="$BASE_PROMPT"
 
 
 # If you come from bash you might have to change your $PATH.
