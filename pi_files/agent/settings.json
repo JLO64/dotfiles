@@ -1,17 +1,22 @@
 {
-  "lastChangelogVersion": "0.68.0",
+  "lastChangelogVersion": "0.70.6",
   "defaultProvider": "openrouter",
-  "defaultModel": "moonshotai/kimi-k2.6",
+  "defaultModel": "deepseek/deepseek-v4-flash",
   "enabledModels": [
-    "LM Studio/qwen3.6-35b-a3b@5bit",
+    "LM Studio/qwen3.6-27b",
+    "openrouter/deepseek/deepseek-v4-pro",
+    "openrouter/deepseek/deepseek-v4-flash",
     "LM Studio/glm-4.7-flash",
-    "openrouter/z-ai/glm-5.1",
     "openrouter/moonshotai/kimi-k2.6"
   ],
   "packages": [
     "npm:pi-rewind",
-    "npm:@ogulcancelik/pi-ghostty-theme-sync"
+    "npm:@ogulcancelik/pi-ghostty-theme-sync",
+    "npm:@ogulcancelik/pi-web-browse"
   ],
   "defaultThinkingLevel": "medium",
-  "theme": "ghostty-sync-a2ab1bef"
+  "theme": "ghostty-sync-a2ab1bef",
+  "compaction": {
+    "enabled": false
+  }
 }
