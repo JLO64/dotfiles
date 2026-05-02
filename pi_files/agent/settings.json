@@ -13,6 +13,7 @@
   ],
   "defaultThinkingLevel": "medium",
   "theme": "ghostty-sync-a2ab1bef",
+  "shellCommandPrefix": "source ~/.env",
   "compaction": {
     "enabled": false
   }
