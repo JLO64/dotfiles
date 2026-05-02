@@ -11,7 +11,6 @@
   ],
   "packages": [
     "npm:@ogulcancelik/pi-ghostty-theme-sync",
-    "npm:@ogulcancelik/pi-web-browse"
   ],
   "defaultThinkingLevel": "medium",
   "theme": "ghostty-sync-a2ab1bef",
