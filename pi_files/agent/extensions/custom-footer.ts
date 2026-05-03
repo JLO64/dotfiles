@@ -246,7 +246,7 @@ export default function (pi: ExtensionAPI) {
 						elapsedStr = "(...)";
 					} else if (timerState.hasResponded) {
 						const elapsedMs = Date.now() - timerState.lastCompletionTime;
-						const elapsedSec = Math.floor(elapsedMs / 1000);
+						const elapsedSec = Math.ceil(Math.floor(elapsedMs / 1000) / 5) * 5;
 						if (elapsedSec < 60) {
 							elapsedStr = `(${elapsedSec}s)`;
 						} else if (elapsedSec < 3600) {
