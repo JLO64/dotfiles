@@ -9,7 +9,7 @@
 // ============================================================================
 
 // ----- Configuration -----
-const float DIM_STRENGTH = 0.55;   // How much text fades toward background (0=none, 1=invisible)
+const vec3 UNFOCUS_COLOR = vec3(0.608, 0.600, 0.682); // #9b99ae — soft lavender-gray
 const float COLOR_THRESHOLD = 0.04; // Minimum color distance to consider a pixel "foreground"
 
 // ------------------------------------------------------
@@ -43,7 +43,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float dist = distance(original.rgb, bg);
     float isForeground = smoothstep(COLOR_THRESHOLD, COLOR_THRESHOLD + 0.08, dist);
 
-    vec3 dimmed = mix(original.rgb, bg, DIM_STRENGTH * isForeground);
+    vec3 replaced = mix(original.rgb, UNFOCUS_COLOR, isForeground);
 
-    fragColor = vec4(dimmed, original.a);
+    fragColor = vec4(replaced, original.a);
 }
