@@ -249,10 +249,17 @@ export default function (pi: ExtensionAPI) {
 						const elapsedSec = Math.floor(elapsedMs / 1000);
 						if (elapsedSec < 60) {
 							elapsedStr = `(${elapsedSec}s)`;
-						} else {
+						} else if (elapsedSec < 3600) {
 							const minutes = Math.floor(elapsedSec / 60);
 							const seconds = elapsedSec % 60;
 							elapsedStr = `(${minutes}m${seconds}s)`;
+						} else if (elapsedSec < 86400) {
+							const hours = Math.floor(elapsedSec / 3600);
+							const minutes = Math.floor((elapsedSec % 3600) / 60);
+							elapsedStr = `(${hours}h${minutes}m)`;
+						} else {
+							const days = Math.floor(elapsedSec / 86400);
+							elapsedStr = `(+${days}d)`;
 						}
 					}
 
