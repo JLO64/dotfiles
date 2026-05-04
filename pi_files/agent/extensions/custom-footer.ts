@@ -82,6 +82,17 @@ function getGitInfo(cwd: string): GitInfo | null {
 	}
 }
 
+// ─── Model name shortening ──────────────────────────────────────────────────
+
+function shortenModelName(modelId: string): string {
+	let name = modelId;
+	const providerIdx = name.indexOf("/");
+	if (providerIdx >= 0) name = name.slice(providerIdx + 1);
+	const makerIdx = name.lastIndexOf("/");
+	if (makerIdx >= 0) name = name.slice(makerIdx + 1);
+	return name;
+}
+
 // ─── Path display formatting ──────────────────────────────────────────────────
 
 function truncateDisplayPath(
@@ -228,7 +239,7 @@ export default function (pi: ExtensionAPI) {
 					const contextPercent = contextUsage?.percent ?? 0;
 
 					// Model
-					const modelName = ctx.model?.id || "no-model";
+					const modelName = shortenModelName(ctx.model?.id || "no-model");
 
 					// Time
 					const now = new Date();
