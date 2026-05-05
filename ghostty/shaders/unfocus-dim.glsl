@@ -9,7 +9,7 @@
 // ============================================================================
 
 // ----- Configuration -----
-const vec3 UNFOCUS_COLOR = vec3(0.608, 0.600, 0.682); // #9b99ae — soft lavender-gray
+const vec3 UNFOCUS_COLOR = vec3(0.306, 0.306, 0.306); // #4e4e4e — neutral gray
 const float COLOR_THRESHOLD = 0.04; // Minimum color distance to consider a pixel "foreground"
 
 // ------------------------------------------------------
