@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // ─── Clear screen ────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ function discoverResources(): Resources {
 			"lib",
 			"node_modules",
 		);
-		const nvmPkg = join(nvmRoot, "@mariozechner", "pi-coding-agent", "package.json");
+		const nvmPkg = join(nvmRoot, "@earendil-works", "pi-coding-agent", "package.json");
 		if (existsSync(nvmPkg)) {
 			version = (JSON.parse(readFileSync(nvmPkg, "utf-8")) as { version: string }).version;
 		}
@@ -49,7 +49,7 @@ function discoverResources(): Resources {
 			}).trim();
 			const pkgPath = join(
 				globalRoot,
-				"@mariozechner",
+				"@earendil-works",
 				"pi-coding-agent",
 				"package.json",
 			);
