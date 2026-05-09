@@ -7,6 +7,10 @@ description: Generate HTML visualizations for diagrams, flows, system architectu
 
 Generate HTML files that render rich, interactive diagrams and visualizations in the browser. HTML is vastly superior to ASCII art for visualizing flows, systems, and architectures.
 
+## Important: Wait for User Content
+
+After this skill is loaded, do **not** generate any page content on your own. Wait for the user to specify what the page should contain — what data, text, structure, or visualization they want. Only generate the HTML once the user has provided the content.
+
 ## Output Location
 
 Write HTML files to `/tmp/pi-visualizations/<descriptive-name>.html`. Create the directory if it doesn’t exist.
@@ -15,9 +19,87 @@ Write HTML files to `/tmp/pi-visualizations/<descriptive-name>.html`. Create the
 mkdir -p /tmp/pi-visualizations
 ```
 
+## Validating Mermaid Syntax
+
+If the generated HTML contains Mermaid diagrams, validate them before opening the browser.
+
+### Setup (once)
+
+Install dependencies in the skill directory:
+
+```bash
+npm install --prefix ~/.pi/agent/skills/html-visualization jsdom mermaid
+```
+
+Save the validation script as `~/.pi/agent/skills/html-visualization/validate-mermaid.mjs` (see below for full script).
+
+### Usage
+
+After writing the HTML, validate it:
+
+```bash
+node ~/.pi/agent/skills/html-visualization/validate-mermaid.mjs /tmp/pi-visualizations/<name>.html
+```
+
+Fix any reported errors, re-validate, and only then open the browser.
+
+### How it works
+
+- For **flowchart, sequence, class, state, ER, pie, C4** diagrams: uses `mermaid.parse()` for strict syntax checking.
+- **⚠️ Gantt charts are not supported** — Mermaid Gantt has too many browser-specific quirks and is banned. Use HTML tables or D3 timelines instead.
+
+### Validation script
+
+Save the following as `~/.pi/agent/skills/html-visualization/validate-mermaid.mjs`:
+
+```javascript
+import { readFileSync } from 'fs';
+import { JSDOM } from 'jsdom';
+
+const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost' });
+for (const k of ['window', 'document', 'Element', 'Node', 'NodeFilter', 'DOMParser']) {
+  Object.defineProperty(globalThis, k, { value: dom.window[k], writable: true });
+}
+
+const mermaid = await import('mermaid');
+mermaid.default.initialize({ startOnLoad: false, securityLevel: 'loose' });
+
+const html = readFileSync(process.argv[2], 'utf-8');
+const re = /<pre class="mermaid">\s*\n?([\s\S]*?)<\/pre>/g;
+let match, idx = 0, errors = 0;
+
+while ((match = re.exec(html)) !== null) {
+  idx++;
+  const code = match[1].trim();
+  const firstLine = code.split('\n')[0].trim();
+
+  // Gantt charts are not supported — skip
+  if (firstLine.toLowerCase().startsWith('gantt')) {
+    console.log(`Block ${idx} (gantt): SKIPPED — Gantt charts are not supported`);
+    continue;
+  }
+
+  // Standard mermaid.parse() for all other diagram types
+  try {
+    await mermaid.default.parse(code);
+    console.log(`Block ${idx} (${firstLine.split(/\s/)[0]}): OK`);
+  } catch (e) {
+    errors++;
+    console.log(`Block ${idx}: FAILED`);
+    console.log(`  ${e.message}`);
+  }
+}
+
+if (errors > 0) {
+  console.log(`\n${errors} mermaid error(s). Fix them before opening the browser.`);
+  process.exit(1);
+}
+console.log('All mermaid blocks passed validation.');
+```
+
 ## Opening in Browser
 
-After writing the file, open it with the OS default browser:
+After validating (if applicable), open the file with the OS default browser:
 
 ```bash
 # macOS
@@ -29,7 +111,7 @@ xdg-open /tmp/pi-visualizations/<name>.html
 
 ## Recommended Libraries (CDN)
 
-### Mermaid.js (diagrams, flowcharts, sequence diagrams, Gantt)
+### Mermaid.js (diagrams, flowcharts, sequence diagrams)
 
 ```html
 <script type="module">
@@ -38,7 +120,7 @@ xdg-open /tmp/pi-visualizations/<name>.html
 </script>
 ```
 
-Use for: flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, architecture diagrams, C4 diagrams.
+Use for: flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, pie charts, architecture diagrams, C4 diagrams. (Gantt charts are **not supported** — use HTML tables instead.)
 
 ### D3.js (custom data visualizations)
 
@@ -54,7 +136,7 @@ For simple diagrams, inline SVG or HTML5 Canvas is often sufficient and keeps th
 
 ## Design Guidelines
 
-1. **Use Mermaid for structured diagrams** — it handles layout, arrows, and styling automatically
+1. **Do not use Mermaid unless the user explicitly asks for a diagram** — default to pure HTML/CSS layouts unless diagrams are requested
 2. **Include a title and brief description** at the top of the page
 3. **Use a clean, readable color scheme** — prefer neutral backgrounds, distinct node colors
 4. **Make it self-contained** — everything in one file, CDN scripts from fast providers
