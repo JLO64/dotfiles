@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visualization</title>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      fontSize: 20,
+      themeVariables: {
+        // Rosé Pine Moon palette
+        darkMode: true,
+        background:      '#232136',
+        primaryColor:    '#c4a7e7',
+        primaryTextColor:'#e0def4',
+        primaryBorderColor:'#56526e',
+        secondaryColor:  '#3e8fb0',
+        secondaryTextColor:'#e0def4',
+        secondaryBorderColor:'#44415a',
+        tertiaryColor:   '#f6c177',
+        tertiaryTextColor:'#232136',
+        tertiaryBorderColor:'#f6c177',
+        lineColor:       '#6e6a86',
+        textColor:       '#e0def4',
+        mainBkg:         '#2a273f',
+        nodeBorder:      '#56526e',
+        clusterBkg:      '#393552',
+        clusterBorder:   '#56526e',
+        titleColor:      '#e0def4',
+        edgeLabelBackground:'#2a273f',
+        nodeTextColor:   '#e0def4',
+        // Sequence diagram
+        actorBkg:        '#2a273f',
+        actorBorder:     '#56526e',
+        actorTextColor:  '#e0def4',
+        actorLineColor:  '#6e6a86',
+        signalColor:     '#e0def4',
+        signalTextColor: '#e0def4',
+        labelBoxBkgColor:'#2a273f',
+        labelBoxBorderColor:'#56526e',
+        labelTextColor:  '#e0def4',
+        loopTextColor:   '#e0def4',
+        noteBkgColor:    '#393552',
+        noteBorderColor: '#56526e',
+        noteTextColor:   '#e0def4',
+        activationBkgColor:'#393552',
+        activationBorderColor:'#c4a7e7',
+        sequenceNumberColor:'#232136',
+        // State diagram
+        labelColor:      '#e0def4',
+        altBackground:   '#2a273f',
+        // Class diagram
+        classText:       '#e0def4',
+        // Pie chart
+        pie1: '#c4a7e7',
+        pie2: '#3e8fb0',
+        pie3: '#f6c177',
+        pie4: '#eb6f92',
+        pie5: '#9ccfd8',
+        pie6: '#ea9a97',
+        pie7: '#6e6a86',
+        pie8: '#908caa',
+        pieTitleTextColor:'#e0def4',
+        pieSectionTextColor:'#232136',
+        pieLegendTextColor:'#e0def4',
+        pieStrokeColor:  '#232136',
+        pieOpacity: '1.0',
+        // ER diagram
+        entityBorder:    '#56526e',
+        // Gantt
+        sectionBkgColor: '#2a273f',
+        altSectionBkgColor:'#393552',
+        sectionBkgColor2:'#2a273f',
+        taskBkgColor:    '#3e8fb0',
+        taskBorderColor: '#c4a7e7',
+        taskTextColor:   '#232136',
+        taskTextLightColor:'#e0def4',
+        taskTextOutsideColor:'#e0def4',
+        taskTextClickableColor:'#e0def4',
+        activeTaskBkgColor:'#c4a7e7',
+        activeTaskBorderColor:'#e0def4',
+        gridColor:       '#44415a',
+        doneTaskBkgColor:'#6e6a86',
+        doneTaskBorderColor:'#908caa',
+        critBkgColor:    '#eb6f92',
+        critBorderColor: '#eb6f92',
+        todayLineColor:  '#f6c177',
+        // Git
+        commitLabelColor:'#e0def4',
+        commitLabelBackground:'#2a273f',
+        git0: '#eb6f92',
+        git1: '#f6c177',
+        git2: '#9ccfd8',
+        git3: '#c4a7e7',
+        git4: '#3e8fb0',
+        git5: '#ea9a97',
+        git6: '#908caa',
+        git7: '#6e6a86',
+        // C4
+        personBkg:       '#3e8fb0',
+        personBorder:    '#9ccfd8',
+        externalPersonBkg:'#6e6a86',
+        externalPersonBorder:'#908caa',
+        systemBkg:       '#c4a7e7',
+        systemBorder:    '#e0def4',
+        externalSystemBkg:'#eb6f92',
+        externalSystemBorder:'#ea9a97',
+        containerBkg:    '#2a273f',
+        containerBorder: '#56526e',
+      }
+    });
+  </script>
+  <style>
+    :root {
+      /* Rosé Pine Moon */
+      --rp-base:        #232136;
+      --rp-surface:     #2a273f;
+      --rp-overlay:     #393552;
+      --rp-muted:       #6e6a86;
+      --rp-subtle:      #908caa;
+      --rp-text:        #e0def4;
+      --rp-love:        #eb6f92;
+      --rp-gold:        #f6c177;
+      --rp-rose:        #ea9a97;
+      --rp-pine:        #3e8fb0;
+      --rp-foam:        #9ccfd8;
+      --rp-iris:        #c4a7e7;
+      --rp-highlight-low:  #2a283e;
+      --rp-highlight-med:  #44415a;
+      --rp-highlight-high: #56526e;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--rp-base);
+      color: var(--rp-text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--rp-iris);
+      color: var(--rp-base);
+      padding: 1.25rem 1.5rem;
+    }
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .header p {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+
+    /* ── Main container ── */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    /* ── Content card ── */
+    .card {
+      background: var(--rp-surface);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      color: var(--rp-text);
+    }
+    .card > p {
+      color: var(--rp-subtle);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* ── Mermaid ── */
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      margin: 1rem 0;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      color: var(--rp-subtle);
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    /* ── Utility text colors ── */
+    .text-love  { color: var(--rp-love); }
+    .text-gold  { color: var(--rp-gold); }
+    .text-pine  { color: var(--rp-pine); }
+    .text-foam  { color: var(--rp-foam); }
+    .text-iris  { color: var(--rp-iris); }
+    .text-rose  { color: var(--rp-rose); }
+    .text-muted { color: var(--rp-muted); }
+    .text-subtle{ color: var(--rp-subtle); }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .container { padding: 1rem; }
+      .header { padding: 1rem; }
+      .header h1 { font-size: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>Title Goes Here</h1>
+    <p>Brief description of this visualization.</p>
+  </header>
+
+  <main class="container">
+    <!-- CONTENT -->
+  </main>
+</body>
+</html>

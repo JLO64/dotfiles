@@ -116,11 +116,13 @@ xdg-open /tmp/pi-visualizations/<name>.html
 ```html
 <script type="module">
   import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { darkMode: true } });
 </script>
 ```
 
 Use for: flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, pie charts, architecture diagrams, C4 diagrams. (Gantt charts are **not supported** — use HTML tables instead.)
+
+> **Note:** The template already includes a full Rosé Pine Moon Mermaid configuration. Copy the template — don't write this from scratch.
 
 ### D3.js (custom data visualizations)
 
@@ -134,38 +136,70 @@ Use for: custom force-directed graphs, hierarchical trees, network topologies, d
 
 For simple diagrams, inline SVG or HTML5 Canvas is often sufficient and keeps the file self-contained.
 
+## Template
+
+**Always start from the template file** at `~/.pi/agent/skills/html-visualization/template.html` instead of writing HTML from scratch. The template provides:
+
+- **Rosé Pine Moon color theme** with CSS custom properties (e.g., `var(--rp-base)`, `var(--rp-surface)`, `var(--rp-iris)`, etc.)
+- **Iris header bar** for the title and description
+- **Surface content cards** for organizing sections
+- **Mermaid.js** pre-configured with matching Rosé Pine Moon theme variables
+- Responsive styling and a clean layout
+
+To use it: copy the template, update the `<title>` and header text, then replace `<!-- CONTENT -->` with your visualization content.
+
+### Copy the template
+
+```bash
+cp ~/.pi/agent/skills/html-visualization/template.html /tmp/pi-visualizations/<name>.html
+```
+
+### Rosé Pine Moon color reference
+
+| Role | Variable | Hex | Use |
+|------|----------|-----|-----|
+| Base | `--rp-base` | `#232136` | Page background |
+| Surface | `--rp-surface` | `#2a273f` | Content cards |
+| Overlay | `--rp-overlay` | `#393552` | Borders, separators |
+| Muted | `--rp-muted` | `#6e6a86` | Secondary text |
+| Subtle | `--rp-subtle` | `#908caa` | Descriptions, captions |
+| Text | `--rp-text` | `#e0def4` | Primary text |
+| Love | `--rp-love` | `#eb6f92` | Errors, destructive |
+| Gold | `--rp-gold` | `#f6c177` | Warnings, highlights |
+| Rose | `--rp-rose` | `#ea9a97` | Accent |
+| Pine | `--rp-pine` | `#3e8fb0` | Links, info |
+| Foam | `--rp-foam` | `#9ccfd8` | Success, secondary accent |
+| Iris | `--rp-iris` | `#c4a7e7` | Header, primary accent |
+| Highlight Low | `--rp-highlight-low` | `#2a283e` | Subtle hover |
+| Highlight Med | `--rp-highlight-med` | `#44415a` | Medium hover |
+| Highlight High | `--rp-highlight-high` | `#56526e` | Strong hover |
+
 ## Design Guidelines
 
-1. **Do not use Mermaid unless the user explicitly asks for a diagram** — default to pure HTML/CSS layouts unless diagrams are requested
-2. **Include a title and brief description** at the top of the page
-3. **Use a clean, readable color scheme** — prefer neutral backgrounds, distinct node colors
-4. **Make it self-contained** — everything in one file, CDN scripts from fast providers
-5. **Add basic responsive styling** — `max-width` on containers, `viewport` meta tag
-6. **Include a legend** when the diagram uses color or shape semantics
-7. **Use `/tmp/pi-visualizations/`** for all output files
+1. **Always start from the template** — copy `~/.pi/agent/skills/html-visualization/template.html` and replace `<!-- CONTENT -->` with your content
+2. **Do not use Mermaid unless the user explicitly asks for a diagram** — default to pure HTML/CSS layouts unless diagrams are requested
+3. **Prefer `flowchart TD` over `flowchart LR`** — top-down flowcharts give each node more width so text stays readable. LR is fine for ≤3 nodes; anything wider should be TD.
+4. **Use the Rosé Pine Moon theme** — stick to the CSS variables defined in the template (`--rp-*`); do not introduce new colors
+5. **Make it self-contained** — everything in one file, CDN scripts from fast providers
+6. **Add content inside `.card` containers** — use `<section class="card">` for each logical section of content
+7. **Include a legend** when the diagram uses color or shape semantics (use the `.legend` / `.legend-item` structure from the template)
+8. **Use `/tmp/pi-visualizations/`** for all output files
 
-## Example: System Architecture Diagram
+## Example: Using the Template
+
+1. Copy the template:
+
+```bash
+cp ~/.pi/agent/skills/html-visualization/template.html /tmp/pi-visualizations/architecture.html
+```
+
+2. Edit the file — update the `<title>`, header `<h1>` and `<p>`, then replace `<!-- CONTENT -->` with your sections. For example:
 
 ```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>System Architecture</title>
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'default' });
-  </script>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { color: #333; }
-    .mermaid { margin: 2rem 0; }
-  </style>
-</head>
-<body>
-  <h1>System Architecture</h1>
-  <p>High-level architecture of the system showing component relationships.</p>
+<!-- CONTENT -->
+<section class="card">
+  <h2>System Architecture</h2>
+  <p>High-level architecture showing component relationships.</p>
   <pre class="mermaid">
     graph TD
       A[Client] --> B[API Gateway]
@@ -174,31 +208,22 @@ For simple diagrams, inline SVG or HTML5 Canvas is often sufficient and keeps th
       D --> E[(Database)]
       D --> F[Cache]
   </pre>
-</body>
-</html>
-```
+</section>
 
-## Example: Data Flow Diagram (D3)
-
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Data Flow</title>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    svg { width: 100%; height: 500px; border: 1px solid #eee; border-radius: 8px; }
-  </style>
-</head>
-<body>
-  <h1>Data Flow Diagram</h1>
+<section class="card">
+  <h2>Data Flow</h2>
+  <p>How data moves through the pipeline.</p>
   <svg id="viz"></svg>
   <script>
     // D3 visualization code here
   </script>
-</body>
-</html>
+</section>
+```
+
+3. Validate (if Mermaid is used) and open:
+
+```bash
+node ~/.pi/agent/skills/html-visualization/validate-mermaid.mjs /tmp/pi-visualizations/architecture.html
+# macOS
+open /tmp/pi-visualizations/architecture.html
 ```
