@@ -264,11 +264,36 @@ export default function (pi: ExtensionAPI) {
 		dismissed = false;
 		const r = discoverResources();
 
+		// ── OpenRouter credits ────────────────────────────────────────
+		let creditsLine: string | null = null;
+		try {
+			const apiKey = process.env.OPENROUTER_API_KEY;
+			if (apiKey) {
+				const resp = await fetch("https://openrouter.ai/api/v1/credits", {
+					headers: { Authorization: `Bearer ${apiKey}` },
+				});
+				if (resp.ok) {
+					const body = (await resp.json()) as {
+						data: { total_credits: number; total_usage: number };
+					};
+					const remaining = body.data.total_credits - body.data.total_usage;
+					creditsLine = `$${(Math.floor(remaining * 100) / 100).toFixed(2)}`;
+				}
+			}
+		} catch {
+			// offline or key missing — skip the line
+		}
+
 		ctx.ui.setWidget("custom-header", (_tui, theme) => {
 			const lines: string[] = [];
 
 			// pi version
 			lines.push(formatLine("pi", [r.version], theme));
+
+			// openrouter credits
+			if (creditsLine) {
+				lines.push(formatLine("OpenRouter Credits", [creditsLine], theme));
+			}
 
 			// scoped models
 			if (r.scopedModels.length > 0) {
