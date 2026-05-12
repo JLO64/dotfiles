@@ -45,8 +45,9 @@ Fix any reported errors, re-validate, and only then open the browser.
 
 ### How it works
 
-- For **flowchart, sequence, class, state, ER, pie, C4** diagrams: uses `mermaid.parse()` for strict syntax checking.
+- For **flowchart, class, state, ER, pie, C4** diagrams: uses `mermaid.parse()` for strict syntax checking.
 - **⚠️ Gantt charts are not supported** — Mermaid Gantt has too many browser-specific quirks and is banned. Use HTML tables or D3 timelines instead.
+- **⚠️ Sequence diagrams are not supported** — banned per user preference. Use flowcharts or pure HTML/CSS for process flows instead.
 
 ### Validation script
 
@@ -120,7 +121,7 @@ xdg-open /tmp/pi-visualizations/<name>.html
 </script>
 ```
 
-Use for: flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, pie charts, architecture diagrams, C4 diagrams. (Gantt charts are **not supported** — use HTML tables instead.)
+Use for: flowcharts, class diagrams, state diagrams, ER diagrams, pie charts, architecture diagrams, C4 diagrams. (Gantt and sequence diagrams are **not supported** — use HTML tables or flowcharts instead.)
 
 > **Note:** The template already includes a full Rosé Pine Moon Mermaid configuration. Copy the template — don't write this from scratch.
 
