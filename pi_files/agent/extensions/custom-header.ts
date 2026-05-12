@@ -82,24 +82,117 @@ function discoverResources(): Resources {
 		return name;
 	});
 
-	// context files
+	// context files — global + walk up from cwd
 	const contextFiles: string[] = [];
+	const seen = new Set<string>();
 	for (const name of ["AGENTS.md", "CLAUDE.md"]) {
 		const p = join(agentDir, name);
-		if (existsSync(p)) contextFiles.push(`~/.pi/agent/${name}`);
-	}
-
-	// skills — directories containing SKILL.md
-	const skillsDir = join(agentDir, "skills");
-	const skills: string[] = [];
-	if (existsSync(skillsDir)) {
-		for (const entry of readdirSync(skillsDir)) {
-			const full = join(skillsDir, entry);
-			if (statSync(full).isDirectory() && existsSync(join(full, "SKILL.md"))) {
-				skills.push(entry);
-			}
+		if (existsSync(p)) {
+			contextFiles.push(`~/.pi/agent/${name}`);
+			seen.add(p);
 		}
 	}
+	{
+		let dir = process.cwd();
+		const root = "/";
+		while (dir !== root) {
+			for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+				const p = join(dir, name);
+				if (existsSync(p) && !seen.has(p)) {
+					const home = homedir();
+					contextFiles.push(p.startsWith(home) ? `~${p.slice(home.length)}` : p);
+					seen.add(p);
+				}
+			}
+			const parent = join(dir, "..");
+			if (parent === dir) break;
+			dir = parent;
+		}
+	}
+
+	// skills — directories with SKILL.md (global + project), plus settings + .agents/
+	const skills: string[] = [];
+
+	const discoverSkillsInDir = (
+		base: string,
+		prefix: string,
+		rootMd: boolean,
+	) => {
+		if (!existsSync(base)) return;
+		for (const entry of readdirSync(base)) {
+			const full = join(base, entry);
+			try {
+				if (statSync(full).isDirectory()) {
+					if (existsSync(join(full, "SKILL.md"))) {
+						skills.push(`${prefix}${entry}`);
+					}
+				} else if (
+					rootMd &&
+					entry.endsWith(".md") &&
+					statSync(full).isFile()
+				) {
+					skills.push(`${prefix}${entry.replace(/\.md$/, "")}`);
+				}
+			} catch {
+				// skip unreadable entries
+			}
+		}
+	};
+
+	// helper: read a settings file and discover skills from its "skills" array
+	const discoverSkillsFromSettings = (settingsPath: string) => {
+		if (!existsSync(settingsPath)) return;
+		let s: Record<string, unknown> = {};
+		try {
+			s = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		} catch {
+			return;
+		}
+		const list = (s.skills as string[]) ?? [];
+		if (list.length === 0) return;
+		// paths relative to settings file directory; ~ and absolute supported
+		const base = join(settingsPath, "..");
+		for (const raw of list) {
+			const resolved = raw.startsWith("~")
+				? join(homedir(), raw.slice(1))
+				: raw.startsWith("/")
+					? raw
+					: join(base, raw);
+			discoverSkillsInDir(resolved, "", false);
+		}
+	};
+
+	// global — ~/.pi/agent/skills/ (dirs + root .md)
+	discoverSkillsInDir(join(agentDir, "skills"), "", true);
+	// global — ~/.pi/agent/settings.json skills array
+	discoverSkillsFromSettings(join(agentDir, "settings.json"));
+
+	// project — .pi/skills/ in cwd + ancestors (dirs + root .md)
+	{
+		let dir = process.cwd();
+		const root = "/";
+		while (dir !== root) {
+			const prefix =
+				dir === process.cwd() ? "" : `${dir}/.pi/skills/`;
+			discoverSkillsInDir(join(dir, ".pi", "skills"), prefix, true);
+			const parent = join(dir, "..");
+			if (parent === dir) break;
+			dir = parent;
+		}
+	}
+	// project — .agents/skills/ in cwd + ancestors (dirs only, no root .md)
+	{
+		let dir = process.cwd();
+		const root = "/";
+		while (dir !== root) {
+			discoverSkillsInDir(join(dir, ".agents", "skills"), "", false);
+			const parent = join(dir, "..");
+			if (parent === dir) break;
+			dir = parent;
+		}
+	}
+	// project — .pi/settings.json skills array
+	discoverSkillsFromSettings(join(process.cwd(), ".pi", "settings.json"));
 
 	// extensions — .ts files and directories with index.ts
 	const extensionsDir = join(agentDir, "extensions");
