@@ -84,13 +84,37 @@ function getGitInfo(cwd: string): GitInfo | null {
 
 // ─── Model name shortening ──────────────────────────────────────────────────
 
-function shortenModelName(modelId: string): string {
-	let name = modelId;
-	const providerIdx = name.indexOf("/");
-	if (providerIdx >= 0) name = name.slice(providerIdx + 1);
-	const makerIdx = name.lastIndexOf("/");
-	if (makerIdx >= 0) name = name.slice(makerIdx + 1);
-	return name;
+// Provider display names mapping
+const PROVIDER_NAMES: Record<string, string> = {
+	openrouter: "OpenRouter",
+	opencode: "OpenCode-Go",
+	anthropic: "Anthropic",
+	openai: "OpenAI",
+	"amazon-bedrock": "Amazon Bedrock",
+	google: "Google",
+	groq: "Groq",
+	deepseek: "DeepSeek",
+	meta: "Meta",
+	mistral: "Mistral",
+	cohere: "Cohere",
+	together: "Together",
+	"google-vertex": "Google Vertex",
+	azure: "Azure",
+	fireworks: "Fireworks",
+	xai: "xAI",
+	cerebras: "Cerebras",
+};
+
+function shortenModelName(provider: string | undefined, modelId: string): string {
+	// Strip redundant maker prefix from model ID (e.g. deepseek/deepseek-v4-flash → deepseek-v4-flash)
+	let model = modelId;
+	const makerIdx = model.lastIndexOf("/");
+	if (makerIdx >= 0) model = model.slice(makerIdx + 1);
+
+	if (!provider) return model;
+
+	const displayProvider = PROVIDER_NAMES[provider] ?? (provider.charAt(0).toUpperCase() + provider.slice(1));
+	return `${displayProvider}/${model}`;
 }
 
 // ─── Path display formatting ──────────────────────────────────────────────────
@@ -239,7 +263,7 @@ export default function (pi: ExtensionAPI) {
 					const contextPercent = contextUsage?.percent ?? 0;
 
 					// Model
-					const modelName = shortenModelName(ctx.model?.id || "no-model");
+					const modelName = shortenModelName(ctx.model?.provider, ctx.model?.id || "no-model");
 
 					// Time
 					const now = new Date();
