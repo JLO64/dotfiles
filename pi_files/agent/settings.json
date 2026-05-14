@@ -6,7 +6,7 @@
   "enabledModels": [
     "opencode-go/deepseek-v4-pro",
     "opencode-go/deepseek-v4-flash",
-    "LM Studio/qwen3.5-9b",
+    "lm-studio/qwen3.5-9b",
     "opencode-go/kimi-k2.6"
   ],
   "packages": [

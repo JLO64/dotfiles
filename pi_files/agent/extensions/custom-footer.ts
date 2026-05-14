@@ -84,27 +84,6 @@ function getGitInfo(cwd: string): GitInfo | null {
 
 // ─── Model name shortening ──────────────────────────────────────────────────
 
-// Provider display names mapping
-const PROVIDER_NAMES: Record<string, string> = {
-	openrouter: "OpenRouter",
-	opencode: "OpenCode-Go",
-	anthropic: "Anthropic",
-	openai: "OpenAI",
-	"amazon-bedrock": "Amazon Bedrock",
-	google: "Google",
-	groq: "Groq",
-	deepseek: "DeepSeek",
-	meta: "Meta",
-	mistral: "Mistral",
-	cohere: "Cohere",
-	together: "Together",
-	"google-vertex": "Google Vertex",
-	azure: "Azure",
-	fireworks: "Fireworks",
-	xai: "xAI",
-	cerebras: "Cerebras",
-};
-
 function shortenModelName(provider: string | undefined, modelId: string): string {
 	// Strip redundant maker prefix from model ID (e.g. deepseek/deepseek-v4-flash → deepseek-v4-flash)
 	let model = modelId;
@@ -113,8 +92,7 @@ function shortenModelName(provider: string | undefined, modelId: string): string
 
 	if (!provider) return model;
 
-	const displayProvider = PROVIDER_NAMES[provider] ?? (provider.charAt(0).toUpperCase() + provider.slice(1));
-	return `${displayProvider}/${model}`;
+	return `${provider}/${model}`;
 }
 
 // ─── Path display formatting ──────────────────────────────────────────────────
