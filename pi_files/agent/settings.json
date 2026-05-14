@@ -1,18 +1,18 @@
 {
-  "lastChangelogVersion": "0.72.1",
+  "lastChangelogVersion": "0.74.0",
   "quietStartup": true,
-  "defaultProvider": "openrouter",
-  "defaultModel": "deepseek/deepseek-v4-flash",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
   "enabledModels": [
-    "openrouter/deepseek/deepseek-v4-pro",
-    "openrouter/deepseek/deepseek-v4-flash",
+    "opencode-go/deepseek-v4-pro",
+    "opencode-go/deepseek-v4-flash",
     "LM Studio/qwen3.5-9b",
-    "openrouter/moonshotai/kimi-k2.6"
+    "opencode-go/kimi-k2.6"
   ],
   "packages": [
     "npm:@ogulcancelik/pi-ghostty-theme-sync"
   ],
-  "defaultThinkingLevel": "medium",
+  "defaultThinkingLevel": "high",
   "theme": "ghostty-sync-a2ab1bef",
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
