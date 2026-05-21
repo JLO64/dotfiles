@@ -168,6 +168,9 @@ PROMPT="$BASE_PROMPT"
 # For uv tools and sheldon to work
 export PATH="$HOME/.local/bin:$PATH"
 
+# For bun
+export PATH="/Users/64julianlopez/.bun/bin:$PATH"
+
 # Path to your Oh My Zsh installation.
 # export ZSH="$HOME/.oh-my-zsh"
 

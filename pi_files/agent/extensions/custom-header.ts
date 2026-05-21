@@ -21,24 +21,21 @@ interface Resources {
 }
 
 function discoverResources(): Resources {
-	// pi version — try nvm path first (fast), then npm root -g
+	// pi version — try bun path first (fast), then npm root -g
 	let version = "unknown";
 	try {
-		const nvmRoot = join(
+		const bunPkg = join(
 			homedir(),
-			".nvm",
-			"versions",
-			"node",
-			process.version,
-			"lib",
 			"node_modules",
+			"@earendil-works",
+			"pi-coding-agent",
+			"package.json",
 		);
-		const nvmPkg = join(nvmRoot, "@earendil-works", "pi-coding-agent", "package.json");
-		if (existsSync(nvmPkg)) {
-			version = (JSON.parse(readFileSync(nvmPkg, "utf-8")) as { version: string }).version;
+		if (existsSync(bunPkg)) {
+			version = (JSON.parse(readFileSync(bunPkg, "utf-8")) as { version: string }).version;
 		}
 	} catch {
-		// not an nvm install
+		// not a bun global install
 	}
 	if (version === "unknown") {
 		try {
