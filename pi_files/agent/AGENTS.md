@@ -17,3 +17,5 @@ Never commit, create a pull request, or push changes to any repository without f
 When displaying code in markdown code blocks, always include the explicit language identifier on the opening fence (e.g., ` ```python `, ` ```bash `, ` ```json `, ` ```yaml `). Never use a bare ` ``` ` without a language identifier, as this breaks syntax highlighting and frustrates users who rely on the language tag for context.
 
 When suggesting code changes (additions, removals, or modifications), use a `diff` code block with `-` and `+` line prefixes to clearly indicate what is being removed and added. This renders with color-coded diffs in the terminal, making proposed changes immediately scannable.
+
+**Diff formatting rules:** The `-` and `+` markers must start at column 0 (the beginning of the line), followed by a space, then the line content. Unchanged context lines must be prefixed with a leading space so they are treated as context. Do not indent the `-` or `+` markers — indented markers will not trigger diff syntax highlighting.
