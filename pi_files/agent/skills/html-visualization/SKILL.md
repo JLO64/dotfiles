@@ -186,6 +186,19 @@ cp ~/.pi/agent/skills/html-visualization/template.html /tmp/pi-visualizations/<n
 7. **Include a legend** when the diagram uses color or shape semantics (use the `.legend` / `.legend-item` structure from the template)
 8. **Use `/tmp/pi-visualizations/`** for all output files
 
+### Mermaid Syntax Pitfalls
+
+These characters have special meaning in Mermaid and will break your diagram if used unescaped in node text, edge labels, or anywhere outside of code fences:
+
+| Character | Mermaid meaning | Safe replacement |
+|---|---|---|
+| `{` `}` | Rhombus shape syntax (`{text}`) | Use `#123;` and `#125;`, or rewrite e.g. `{council_id}` → `:council_id` |
+| `/` inside `[/.../]` node | Parallelogram closing delimiter — a `/` in the text terminates the node early | Use a rectangular `["..."]` node instead, or avoid slashes in parallelogram text |
+| `(` `)` inside `([...])` node | Stadium shape closing delimiter | Use `["..."]` instead |
+| `&quot;` in edge labels | Unnecessary — regular `"` works fine inside `<pre>` blocks and is less error-prone | Use `"` directly |
+
+**Rule of thumb:** Stick to rectangular nodes (`["..."]`) when your node text contains URLs, code, or template parameters. Only use shape nodes (`[/.../]`, `([...])`, `[(...)]`) for short, simple labels.
+
 ## Example: Using the Template
 
 1. Copy the template:
