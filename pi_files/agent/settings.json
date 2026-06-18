@@ -1,13 +1,13 @@
 {
-  "lastChangelogVersion": "0.74.0",
+  "lastChangelogVersion": "0.79.3",
   "quietStartup": true,
   "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "deepseek-v4-pro",
   "enabledModels": [
     "opencode-go/deepseek-v4-pro",
     "opencode-go/deepseek-v4-flash",
     "lm-studio/qwen3.5-9b",
-    "opencode-go/kimi-k2.6"
+    "opencode-go/kimi-k2.7-code"
   ],
   "packages": [
     "npm:@ogulcancelik/pi-ghostty-theme-sync"
