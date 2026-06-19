@@ -2,6 +2,9 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 // ─── Streaming state ─────────────────────────────────────────────────────────
 
@@ -122,6 +125,111 @@ function truncateDisplayPath(
 	return prefix + ".../" + segments.slice(-maxSegments).join("/");
 }
 
+// ─── ChatGPT Plus usage ──────────────────────────────────────────────────────
+
+interface ChatGPTUsageResponse {
+	used_percent?: number;
+	remaining_percent?: number;
+	reset_at?: number;
+	rate_limit?: {
+		primary_window?: {
+			used_percent?: number;
+			reset_at?: number;
+		};
+		secondary_window?: {
+			used_percent?: number;
+			reset_at?: number;
+		};
+	};
+	data?: {
+		used_percent?: number;
+		remaining_percent?: number;
+		reset_at?: number;
+	};
+}
+
+interface PiAuthFile {
+	"openai-codex"?: {
+		access?: unknown;
+		access_token?: unknown;
+		accountId?: unknown;
+	};
+	tokens?: {
+		access_token?: unknown;
+	};
+	access?: unknown;
+	access_token?: unknown;
+}
+
+function readString(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function readOpenAICodexAccessToken(): string | null {
+	for (const path of [
+		join(homedir(), ".pi", "agent", "auth.json"),
+		join(homedir(), ".codex", "auth.json"),
+	]) {
+		if (!existsSync(path)) continue;
+		try {
+			const auth = JSON.parse(readFileSync(path, "utf-8")) as PiAuthFile;
+			const entry = auth["openai-codex"];
+			const token =
+				readString(entry?.access) ??
+				readString(entry?.access_token) ??
+				readString(auth.tokens?.access_token) ??
+				readString(auth.access_token) ??
+				readString(auth.access);
+			if (token) return token;
+		} catch {
+			// ignore malformed auth files
+		}
+	}
+
+	return null;
+}
+
+async function fetchChatGPTPlusPercent(): Promise<number | null> {
+	const authPath = join(homedir(), ".pi", "agent", "auth.json");
+	let accountId: string | null = null;
+	if (existsSync(authPath)) {
+		try {
+			const auth = JSON.parse(readFileSync(authPath, "utf-8")) as PiAuthFile;
+			accountId = readString(auth["openai-codex"]?.accountId);
+		} catch {
+			// ignore malformed auth files
+		}
+	}
+
+	const accessToken = readOpenAICodexAccessToken();
+	if (!accessToken) return null;
+
+	const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+	if (accountId) headers["ChatGPT-Account-Id"] = accountId;
+
+	const resp = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+		headers,
+	});
+	if (!resp.ok) return null;
+
+	const body = (await resp.json()) as ChatGPTUsageResponse;
+	const primary = body.rate_limit?.primary_window;
+	const source = body.data ?? body;
+	const usedPercent =
+		typeof primary?.used_percent === "number"
+			? primary.used_percent
+			: typeof source.remaining_percent === "number"
+				? 100 - source.remaining_percent
+				: typeof source.used_percent === "number"
+					? source.used_percent
+					: null;
+	if (typeof usedPercent !== "number") {
+		return null;
+	}
+
+	return Math.max(0, Math.min(100, Math.round(usedPercent)));
+}
+
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -163,6 +271,15 @@ export default function (pi: ExtensionAPI) {
 			timerState.hasResponded = false;
 			timerState.requestRender = () => tui.requestRender();
 
+			let disposed = false;
+			let chatGPTPlusPercent: number | null = null;
+
+			void fetchChatGPTPlusPercent().then((percent) => {
+				if (disposed) return;
+				chatGPTPlusPercent = percent;
+				tui.requestRender();
+			});
+
 			const cwd = ctx.sessionManager.getCwd();
 
 			// Cache git info so render() stays fast (TUI calls render frequently)
@@ -184,7 +301,6 @@ export default function (pi: ExtensionAPI) {
 			// Refresh clock every 10 seconds (for the stopwatch timer)
 			const clockTimer = setInterval(() => tui.requestRender(), 10000);
 
-			let disposed = false;
 
 			return {
 				dispose() {
@@ -297,9 +413,11 @@ export default function (pi: ExtensionAPI) {
 						contextStr = `${contextPercent.toFixed(1)}%`;
 					}
 
-					// Cost display: shows streaming estimate during streaming
+					// Cost display: show ChatGPT Plus percentage for openai-codex
 					let costStr: string;
-					if (streamingState.isStreaming && streamingCost > 0) {
+					if (ctx.model?.provider === "openai-codex") {
+						costStr = chatGPTPlusPercent !== null ? `${chatGPTPlusPercent}%` : "—";
+					} else if (streamingState.isStreaming && streamingCost > 0) {
 						const baseCost = totalCost > 0 ? totalCost : 0;
 						const estimate = Math.ceil(streamingCost * 100) / 100;
 						const baseFormatted = baseCost > 0 ? `$${(Math.ceil(baseCost * 100) / 100).toFixed(2)}` : "$0.00";
