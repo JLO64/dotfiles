@@ -21,6 +21,127 @@ interface Resources {
 	extensions: string[];
 }
 
+interface ChatGPTUsageResponse {
+	used_percent?: number;
+	remaining_percent?: number;
+	reset_at?: number;
+	rate_limit?: {
+		primary_window?: {
+			used_percent?: number;
+			reset_at?: number;
+			reset_after_seconds?: number;
+		};
+		secondary_window?: {
+			used_percent?: number;
+			reset_at?: number;
+			reset_after_seconds?: number;
+		};
+	};
+	data?: {
+		used_percent?: number;
+		remaining_percent?: number;
+		reset_at?: number;
+	};
+}
+
+interface PiAuthFile {
+	"openai-codex"?: {
+		access?: unknown;
+		access_token?: unknown;
+		accountId?: unknown;
+	};
+	tokens?: {
+		access_token?: unknown;
+	};
+	access?: unknown;
+	access_token?: unknown;
+}
+
+function readString(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function formatDurationShort(ms: number): string {
+	const totalMinutes = Math.max(0, Math.ceil(ms / 60000));
+	const hours = Math.floor(totalMinutes / 60);
+	const minutes = totalMinutes % 60;
+	if (hours > 0) return `${hours}h${String(minutes).padStart(2, "0")}m`;
+	return `${minutes}m`;
+}
+
+function readOpenAICodexAccessToken(): string | null {
+	for (const path of [
+		join(homedir(), ".pi", "agent", "auth.json"),
+		join(homedir(), ".codex", "auth.json"),
+	]) {
+		if (!existsSync(path)) continue;
+		try {
+			const auth = JSON.parse(readFileSync(path, "utf-8")) as PiAuthFile;
+			const entry = auth["openai-codex"];
+			const token =
+				readString(entry?.access) ??
+				readString(entry?.access_token) ??
+				readString(auth.tokens?.access_token) ??
+				readString(auth.access_token) ??
+				readString(auth.access);
+			if (token) return token;
+		} catch {
+			// ignore malformed auth files
+		}
+	}
+
+	return null;
+}
+
+async function fetchChatGPTPlusUsage(): Promise<string | null> {
+	const authPath = join(homedir(), ".pi", "agent", "auth.json");
+	let accountId: string | null = null;
+	if (existsSync(authPath)) {
+		try {
+			const auth = JSON.parse(readFileSync(authPath, "utf-8")) as PiAuthFile;
+			accountId = readString(auth["openai-codex"]?.accountId);
+		} catch {
+			// ignore malformed auth files
+		}
+	}
+
+	const accessToken = readOpenAICodexAccessToken();
+	if (!accessToken) return null;
+
+	const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+	if (accountId) headers["ChatGPT-Account-Id"] = accountId;
+
+	const resp = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+		headers,
+	});
+	if (!resp.ok) return null;
+
+	const body = (await resp.json()) as ChatGPTUsageResponse;
+	const primary = body.rate_limit?.primary_window;
+	const source = body.data ?? body;
+	const usedPercent =
+		typeof primary?.used_percent === "number"
+			? primary.used_percent
+			: typeof source.remaining_percent === "number"
+				? 100 - source.remaining_percent
+				: typeof source.used_percent === "number"
+					? source.used_percent
+					: null;
+	const resetAt =
+		typeof primary?.reset_at === "number"
+			? primary.reset_at
+			: typeof source.reset_at === "number"
+				? source.reset_at
+				: null;
+	if (typeof usedPercent !== "number" || typeof resetAt !== "number") {
+		return null;
+	}
+
+	const resetMs = resetAt > 1e12 ? resetAt : resetAt * 1000;
+	const usedPercentRounded = Math.max(0, Math.min(100, Math.round(usedPercent)));
+	return `${usedPercentRounded}% (${formatDurationShort(resetMs - Date.now())})`;
+}
+
 function discoverResources(): Resources {
 	// pi version — try bun path first (fast), then npm root -g
 	let version = "unknown";
@@ -282,6 +403,14 @@ export default function (pi: ExtensionAPI) {
 			// offline or key missing — skip the line
 		}
 
+		// ── ChatGPT Plus usage ───────────────────────────────────────
+		let chatGPTLine: string | null = null;
+		try {
+			chatGPTLine = await fetchChatGPTPlusUsage();
+		} catch {
+			// offline or auth missing — skip the line
+		}
+
 		ctx.ui.setWidget("custom-header", (_tui, theme) => {
 			const lines: string[] = [];
 
@@ -291,6 +420,11 @@ export default function (pi: ExtensionAPI) {
 			// openrouter credits
 			if (creditsLine) {
 				lines.push(formatLine("OpenRouter Credits", [creditsLine], theme));
+			}
+
+			// ChatGPT Plus usage
+			if (chatGPTLine) {
+				lines.push(formatLine("ChatGPT Plus", [chatGPTLine], theme));
 			}
 
 			// scoped models
