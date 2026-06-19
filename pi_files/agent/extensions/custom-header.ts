@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // ─── Clear screen ────────────────────────────────────────────────────────────
@@ -316,7 +317,7 @@ export default function (pi: ExtensionAPI) {
 			lines.push("");
 
 			return {
-				render: () => lines,
+				render: (width: number) => lines.map((l) => truncateToWidth(l, width)),
 				invalidate: () => {},
 			};
 		});
