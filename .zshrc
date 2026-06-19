@@ -248,6 +248,7 @@ export PATH="/Users/64julianlopez/.bun/bin:$PATH"
 zstyle ':autocomplete:*complete*:*' insert-unambiguous yes 
 zstyle ':autocomplete:*history*:*' insert-unambiguous yes
 zstyle ':autocomplete:menu-search:*' insert-unambiguous yes
+
 zstyle ':completion:*:*' matcher-list 'm:{[:lower:]-}={[:upper:]_}' '+r:|[.]=**'
 # bindkey -M menuselect              '^I' insert-unambiguous-or-complete
 # bindkey -M menuselect "$terminfo[kcbt]" insert-unambiguous-or-complete
@@ -266,6 +267,15 @@ function zvm_after_init() {
   bindkey              '^I'         autosuggest-accept
   bindkey "$terminfo[kcbt]" menu-complete
 }
+
+# On non-Ghostty terminals, prevent zsh-autocomplete's async (live) module
+# from loading at all. This completely avoids the per-keystroke redraws
+# that garble weak terminal emulators (phone apps, Windows Terminal).
+# Tab-triggered completions and zsh-autosuggestions are unaffected.
+if [[ "$TERM_PROGRAM" != "ghostty" ]]; then
+  zstyle ':autocomplete:async' enabled no
+  ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=0
+fi
 
 eval "$(sheldon source)"
 

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# mtu-detect — discover the optimal MTU for WSL2 via binary search
+# Usage: mtu-detect <target-ip-or-hostname>
+# Example: mtu-detect 192.168.1.10
+
+TIMEOUT_SEC=${MTU_DETECT_TIMEOUT:-10}
+HEADER_OVERHEAD=28
+
+usage() {
+  echo "Usage: mtu-detect <target-ip-or-hostname>"
+  echo "       Discovers optimal MTU via ping with Don't Fragment flag."
+  exit 1
+}
+
+[[ $# -ge 1 ]] || usage
+TARGET="$1"
+
+# Verify target responds at all
+if ! timeout "$TIMEOUT_SEC" ping -c 1 -W 2 "$TARGET" &>/dev/null; then
+  echo "Error: $TARGET is not reachable via ping." >&2
+  exit 1
+fi
+
+# Binary search: MTU range 576–1500 (payload: 548–1472)
+lo=548
+hi=1472
+working=548  # fallback: IPv4 minimum
+
+echo "Probing $TARGET (timeout=${TIMEOUT_SEC}s per attempt)…"
+
+while [[ $lo -le $hi ]]; do
+  mid=$(( (lo + hi) / 2 ))
+  mtu=$(( mid + HEADER_OVERHEAD ))
+
+  printf "  testing payload=%4d (MTU=%4d) … " "$mid" "$mtu"
+
+  if timeout "$TIMEOUT_SEC" ping -M do -s "$mid" -c 1 -W 2 "$TARGET" &>/dev/null; then
+    echo "✓ pass"
+    working=$mid
+    lo=$(( mid + 1 ))
+  else
+    echo "✗ fail"
+    hi=$(( mid - 1 ))
+  fi
+done
+
+optimal=$(( working + HEADER_OVERHEAD ))
+echo ""
+echo "Optimal MTU: $optimal"
+echo "Apply with:  sudo ip link set dev eth0 mtu $optimal"
