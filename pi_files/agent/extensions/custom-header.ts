@@ -30,11 +30,13 @@ interface ChatGPTUsageResponse {
 			used_percent?: number;
 			reset_at?: number;
 			reset_after_seconds?: number;
+			limit_window_seconds?: number;
 		};
 		secondary_window?: {
 			used_percent?: number;
 			reset_at?: number;
 			reset_after_seconds?: number;
+			limit_window_seconds?: number;
 		};
 	};
 	data?: {
@@ -63,10 +65,37 @@ function readString(value: unknown): string | null {
 
 function formatDurationShort(ms: number): string {
 	const totalMinutes = Math.max(0, Math.ceil(ms / 60000));
-	const hours = Math.floor(totalMinutes / 60);
+	const days = Math.floor(totalMinutes / 1440);
+	const hours = Math.floor((totalMinutes % 1440) / 60);
 	const minutes = totalMinutes % 60;
-	if (hours > 0) return `${hours}h${String(minutes).padStart(2, "0")}m`;
+	if (days > 0) return `${days}d ${String(hours).padStart(2, "0")}h`;
+	if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 	return `${minutes}m`;
+}
+
+function formatElapsedWindowDuration(
+	window:
+		| {
+			reset_at?: number;
+			reset_after_seconds?: number;
+			limit_window_seconds?: number;
+		}
+		| undefined,
+	defaultWindowSeconds: number,
+): string | null {
+	const remainingMs =
+		typeof window?.reset_after_seconds === "number"
+			? window.reset_after_seconds * 1000
+			: typeof window?.reset_at === "number"
+				? (window.reset_at > 1e12 ? window.reset_at : window.reset_at * 1000) - Date.now()
+				: null;
+	if (remainingMs === null) return null;
+
+	const windowMs =
+		typeof window?.limit_window_seconds === "number"
+			? window.limit_window_seconds * 1000
+			: defaultWindowSeconds * 1000;
+	return formatDurationShort(windowMs - remainingMs);
 }
 
 function readOpenAICodexAccessToken(): string | null {
@@ -93,7 +122,12 @@ function readOpenAICodexAccessToken(): string | null {
 	return null;
 }
 
-async function fetchChatGPTPlusUsage(): Promise<string | null> {
+type ChatGPTUsageLinePart = { used: number; duration: string };
+
+async function fetchChatGPTPlusUsage(): Promise<{
+	primary: ChatGPTUsageLinePart | null;
+	secondary: ChatGPTUsageLinePart | null;
+} | null> {
 	const authPath = join(homedir(), ".pi", "agent", "auth.json");
 	let accountId: string | null = null;
 	if (existsSync(authPath)) {
@@ -118,28 +152,53 @@ async function fetchChatGPTPlusUsage(): Promise<string | null> {
 
 	const body = (await resp.json()) as ChatGPTUsageResponse;
 	const primary = body.rate_limit?.primary_window;
+	const secondary = body.rate_limit?.secondary_window;
 	const source = body.data ?? body;
-	const usedPercent =
-		typeof primary?.used_percent === "number"
-			? primary.used_percent
-			: typeof source.remaining_percent === "number"
-				? 100 - source.remaining_percent
-				: typeof source.used_percent === "number"
-					? source.used_percent
-					: null;
-	const resetAt =
-		typeof primary?.reset_at === "number"
-			? primary.reset_at
-			: typeof source.reset_at === "number"
-				? source.reset_at
-				: null;
-	if (typeof usedPercent !== "number" || typeof resetAt !== "number") {
-		return null;
-	}
 
-	const resetMs = resetAt > 1e12 ? resetAt : resetAt * 1000;
-	const usedPercentRounded = Math.max(0, Math.min(100, Math.round(usedPercent)));
-	return `${usedPercentRounded}% (${formatDurationShort(resetMs - Date.now())})`;
+	const formatWindow = (
+		window:
+			| {
+				used_percent?: number;
+				reset_at?: number;
+				reset_after_seconds?: number;
+				limit_window_seconds?: number;
+			}
+			| undefined,
+		defaultWindowSeconds: number,
+	) => {
+		const usedPercent =
+			typeof window?.used_percent === "number"
+				? window.used_percent
+				: typeof source.remaining_percent === "number" && window === primary
+					? 100 - source.remaining_percent
+					: typeof source.used_percent === "number" && window === primary
+						? source.used_percent
+						: null;
+		const resetMs =
+			typeof window?.reset_after_seconds === "number"
+				? Date.now() + window.reset_after_seconds * 1000
+				: typeof window?.reset_at === "number"
+					? window.reset_at > 1e12
+						? window.reset_at
+						: window.reset_at * 1000
+					: null;
+		if (typeof usedPercent !== "number" || typeof resetMs !== "number") {
+			return null;
+		}
+
+		const duration = formatElapsedWindowDuration(window, defaultWindowSeconds);
+		if (!duration) return null;
+
+		return {
+			used: Math.max(0, Math.min(100, Math.round(usedPercent))),
+			duration,
+		};
+	};
+
+	return {
+		primary: formatWindow(primary, 18000),
+		secondary: formatWindow(secondary, 604800),
+	};
 }
 
 function discoverResources(): Resources {
@@ -365,6 +424,29 @@ function formatLine(
 	return `${theme.fg("accent", label)}${theme.fg("dim", ": ")}${joined}`;
 }
 
+function formatChatGPTUsageLine(
+	primary: { used?: number; duration?: string } | null,
+	secondary: { used?: number; duration?: string } | null,
+	// biome-ignore lint/suspicious/noExplicitAny: theme shape varies
+	theme: any,
+): string | null {
+	if (!primary && !secondary) return null;
+
+	const used = (n: number | undefined) => `${Math.max(0, Math.min(100, Math.round(n ?? 0)))}%`;
+	const dur = (s: string | undefined) => s ?? "—";
+	const dim = (s: string) => theme.fg("dim", s);
+
+	const primaryPart = primary
+		? `${used(primary.used)}${dim(" in ")}${dur(primary.duration)}${dim(" (5-hour)")}`
+		: null;
+	const secondaryPart = secondary
+		? `${used(secondary.used)}${dim(" in ")}${dur(secondary.duration)}${dim(" (weekly)")}`
+		: null;
+
+	if (primaryPart && secondaryPart) return `${primaryPart}${dim(" / ")}${secondaryPart}`;
+	return primaryPart ?? secondaryPart;
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -404,9 +486,9 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// ── ChatGPT Plus usage ───────────────────────────────────────
-		let chatGPTLine: string | null = null;
+		let chatGPTUsage: { primary: ChatGPTUsageLinePart | null; secondary: ChatGPTUsageLinePart | null } | null = null;
 		try {
-			chatGPTLine = await fetchChatGPTPlusUsage();
+			chatGPTUsage = await fetchChatGPTPlusUsage();
 		} catch {
 			// offline or auth missing — skip the line
 		}
@@ -423,8 +505,9 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ChatGPT Plus usage
-			if (chatGPTLine) {
-				lines.push(formatLine("ChatGPT Plus", [chatGPTLine], theme));
+			if (chatGPTUsage) {
+				const chatGPTLine = formatChatGPTUsageLine(chatGPTUsage.primary, chatGPTUsage.secondary, theme);
+				if (chatGPTLine) lines.push(formatLine("ChatGPT Plus", [chatGPTLine], theme));
 			}
 
 			// scoped models
