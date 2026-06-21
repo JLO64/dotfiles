@@ -239,6 +239,7 @@ export default function (pi: ExtensionAPI) {
 		hasResponded: false,
 		requestRender: () => {},
 	};
+	let refreshChatGPTPlusPercent: () => void = () => {};
 
 	pi.on("agent_start", async () => {
 		streamingState.isStreaming = true;
@@ -251,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 		timerState.hasResponded = true;
 		timerState.lastCompletionTime = Date.now();
 		timerState.requestRender();
+		void refreshChatGPTPlusPercent();
 	});
 
 	pi.on("message_start", async () => {
@@ -273,12 +275,36 @@ export default function (pi: ExtensionAPI) {
 
 			let disposed = false;
 			let chatGPTPlusPercent: number | null = null;
+			let refreshInFlight = false;
+			let refreshQueued = false;
 
-			void fetchChatGPTPlusPercent().then((percent) => {
+			const refreshChatGPTPlusPercentInner = async () => {
 				if (disposed) return;
-				chatGPTPlusPercent = percent;
-				tui.requestRender();
-			});
+				if (refreshInFlight) {
+					refreshQueued = true;
+					return;
+				}
+
+				refreshInFlight = true;
+				try {
+					const percent = await fetchChatGPTPlusPercent();
+					if (disposed) return;
+					chatGPTPlusPercent = percent;
+					tui.requestRender();
+				} finally {
+					refreshInFlight = false;
+					if (!disposed && refreshQueued) {
+						refreshQueued = false;
+						void refreshChatGPTPlusPercentInner();
+					}
+				}
+			};
+
+			refreshChatGPTPlusPercent = () => {
+				void refreshChatGPTPlusPercentInner();
+			};
+
+			refreshChatGPTPlusPercent();
 
 			const cwd = ctx.sessionManager.getCwd();
 
@@ -309,6 +335,7 @@ export default function (pi: ExtensionAPI) {
 					clearInterval(clockTimer);
 					branchUnsub();
 					timerState.requestRender = () => {};
+					refreshChatGPTPlusPercent = () => {};
 				},
 				invalidate() {},
 				render(width: number): string[] {
