@@ -68,20 +68,18 @@ function formatDurationShort(ms: number): string {
 	const days = Math.floor(totalMinutes / 1440);
 	const hours = Math.floor((totalMinutes % 1440) / 60);
 	const minutes = totalMinutes % 60;
-	if (days > 0) return `${days}d ${String(hours).padStart(2, "0")}h`;
+	if (days > 0) return `${days}d ${hours}h`;
 	if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 	return `${minutes}m`;
 }
 
-function formatElapsedWindowDuration(
+function formatRemainingWindowDuration(
 	window:
 		| {
 			reset_at?: number;
 			reset_after_seconds?: number;
-			limit_window_seconds?: number;
 		}
 		| undefined,
-	defaultWindowSeconds: number,
 ): string | null {
 	const remainingMs =
 		typeof window?.reset_after_seconds === "number"
@@ -91,11 +89,7 @@ function formatElapsedWindowDuration(
 				: null;
 	if (remainingMs === null) return null;
 
-	const windowMs =
-		typeof window?.limit_window_seconds === "number"
-			? window.limit_window_seconds * 1000
-			: defaultWindowSeconds * 1000;
-	return formatDurationShort(windowMs - remainingMs);
+	return formatDurationShort(remainingMs);
 }
 
 function readOpenAICodexAccessToken(): string | null {
@@ -164,7 +158,6 @@ async function fetchChatGPTPlusUsage(): Promise<{
 				limit_window_seconds?: number;
 			}
 			| undefined,
-		defaultWindowSeconds: number,
 	) => {
 		const usedPercent =
 			typeof window?.used_percent === "number"
@@ -174,19 +167,11 @@ async function fetchChatGPTPlusUsage(): Promise<{
 					: typeof source.used_percent === "number" && window === primary
 						? source.used_percent
 						: null;
-		const resetMs =
-			typeof window?.reset_after_seconds === "number"
-				? Date.now() + window.reset_after_seconds * 1000
-				: typeof window?.reset_at === "number"
-					? window.reset_at > 1e12
-						? window.reset_at
-						: window.reset_at * 1000
-					: null;
-		if (typeof usedPercent !== "number" || typeof resetMs !== "number") {
+		if (typeof usedPercent !== "number") {
 			return null;
 		}
 
-		const duration = formatElapsedWindowDuration(window, defaultWindowSeconds);
+		const duration = formatRemainingWindowDuration(window);
 		if (!duration) return null;
 
 		return {
@@ -196,8 +181,8 @@ async function fetchChatGPTPlusUsage(): Promise<{
 	};
 
 	return {
-		primary: formatWindow(primary, 18000),
-		secondary: formatWindow(secondary, 604800),
+		primary: formatWindow(primary),
+		secondary: formatWindow(secondary),
 	};
 }
 
@@ -437,10 +422,10 @@ function formatChatGPTUsageLine(
 	const dim = (s: string) => theme.fg("dim", s);
 
 	const primaryPart = primary
-		? `${used(primary.used)}${dim(" in ")}${dur(primary.duration)}${dim(" (5-hour)")}`
+		? `${used(primary.used)}${dim(" with ")}${dur(primary.duration)}${dim(" remaining (5-hour)")}`
 		: null;
 	const secondaryPart = secondary
-		? `${used(secondary.used)}${dim(" in ")}${dur(secondary.duration)}${dim(" (weekly)")}`
+		? `${used(secondary.used)}${dim(" with ")}${dur(secondary.duration)}${dim(" remaining (weekly)")}`
 		: null;
 
 	if (primaryPart && secondaryPart) return `${primaryPart}${dim(" / ")}${secondaryPart}`;
