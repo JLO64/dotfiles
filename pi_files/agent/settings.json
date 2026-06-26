@@ -1,13 +1,14 @@
 {
-  "lastChangelogVersion": "0.79.3",
+  "lastChangelogVersion": "0.79.8",
   "quietStartup": true,
-  "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-pro",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
   "enabledModels": [
-    "opencode-go/deepseek-v4-pro",
+    "openai-codex/gpt-5.5",
+    "openai-codex/gpt-5.4-mini",
+    "opencode-go/kimi-k2.7-code",
     "opencode-go/deepseek-v4-flash",
-    "lm-studio/qwen3.5-9b",
-    "opencode-go/kimi-k2.7-code"
+    "lm-studio/google/gemma-4-26b-a4b-qat"
   ],
   "packages": [
     "npm:@ogulcancelik/pi-ghostty-theme-sync"
