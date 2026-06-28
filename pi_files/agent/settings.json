@@ -10,11 +10,9 @@
     "opencode-go/deepseek-v4-flash",
     "lm-studio/google/gemma-4-26b-a4b-qat"
   ],
-  "packages": [
-    "npm:@ogulcancelik/pi-ghostty-theme-sync"
-  ],
+  "packages": [],
   "defaultThinkingLevel": "high",
-  "theme": "ghostty-sync-a2ab1bef",
+  "theme":"rose-pine-moon",
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
     "enabled": false
