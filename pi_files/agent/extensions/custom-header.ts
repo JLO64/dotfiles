@@ -422,10 +422,10 @@ function formatChatGPTUsageLine(
 	const dim = (s: string) => theme.fg("dim", s);
 
 	const primaryPart = primary
-		? `${used(primary.used)}${dim(" with ")}${dur(primary.duration)}${dim(" remaining (5-hour)")}`
+		? `${used(primary.used)}${dim(" used with ")}${dur(primary.duration)}${dim(" remaining (5-hour)")}`
 		: null;
 	const secondaryPart = secondary
-		? `${used(secondary.used)}${dim(" with ")}${dur(secondary.duration)}${dim(" remaining (weekly)")}`
+		? `${used(secondary.used)}${dim(" used with ")}${dur(secondary.duration)}${dim(" remaining (weekly)")}`
 		: null;
 
 	if (primaryPart && secondaryPart) return `${primaryPart}${dim(" / ")}${secondaryPart}`;
