@@ -432,6 +432,25 @@ function formatChatGPTUsageLine(
 	return primaryPart ?? secondaryPart;
 }
 
+function removeLeadingWidgetSpacer(tui: unknown, component: unknown): void {
+	const rootChildren = (tui as { children?: unknown[] }).children;
+	if (!Array.isArray(rootChildren)) return;
+
+	for (const child of rootChildren) {
+		const children = (child as { children?: unknown[] }).children;
+		if (!Array.isArray(children)) continue;
+
+		const componentIndex = children.indexOf(component);
+		if (componentIndex <= 0) continue;
+
+		const firstChild = children[0] as { constructor?: { name?: string } } | undefined;
+		if (firstChild?.constructor?.name === "Spacer") {
+			children.splice(0, 1);
+			(tui as { requestRender?: () => void }).requestRender?.();
+		}
+	}
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -445,7 +464,7 @@ export default function (pi: ExtensionAPI) {
 			dismissed = false;
 		}
 
-		if (event.reason !== "startup") return;
+		if (event.reason !== "startup" && event.reason !== "new") return;
 
 		dismissed = false;
 		const r = discoverResources();
@@ -478,7 +497,7 @@ export default function (pi: ExtensionAPI) {
 			// offline or auth missing — skip the line
 		}
 
-		ctx.ui.setWidget("custom-header", (_tui, theme) => {
+		ctx.ui.setWidget("custom-header", (tui, theme) => {
 			const lines: string[] = [];
 
 			// pi version
@@ -518,10 +537,13 @@ export default function (pi: ExtensionAPI) {
 			// one trailing blank line
 			lines.push("");
 
-			return {
+			const component = {
 				render: (width: number) => lines.map((l) => truncateToWidth(l, width)),
 				invalidate: () => {},
 			};
+
+			setTimeout(() => removeLeadingWidgetSpacer(tui, component), 0);
+			return component;
 		});
 	});
 
