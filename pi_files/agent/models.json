@@ -36,7 +36,7 @@
             "text",
             "image"
           ],
-          "contextWindow": 36000,
+          "contextWindow": 48000,
           "reasoning": true
         }
       ]
