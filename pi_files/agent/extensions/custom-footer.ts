@@ -460,7 +460,10 @@ export default function (pi: ExtensionAPI) {
 							? "Off"
 							: thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1);
 
-					const statsParts = [thinkingLabel, contextStr, costStr].filter(Boolean);
+					const statsParts = [thinkingLabel, contextStr, costStr].filter((part, i) => {
+						if (ctx.model?.provider === "lm-studio" && i === 2) return false;
+						return !!part;
+					});
 					const stats =
 						statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
 
