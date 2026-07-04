@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -19,6 +19,7 @@ interface Resources {
 	contextFiles: string[];
 	skills: string[];
 	extensions: string[];
+	subagents: string[];
 }
 
 interface ChatGPTUsageResponse {
@@ -61,6 +62,77 @@ interface PiAuthFile {
 
 function readString(value: unknown): string | null {
 	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function parseFrontmatterName(content: string): string | null {
+	const trimmed = content.trimStart();
+	if (!trimmed.startsWith("---")) return null;
+
+	const lines = trimmed.split(/\r?\n/);
+	let endIndex = -1;
+	for (let i = 1; i < lines.length; i++) {
+		const line = lines[i].trim();
+		if (line === "---" || line === "...") {
+			endIndex = i;
+			break;
+		}
+	}
+	if (endIndex < 0) return null;
+
+	for (let i = 1; i < endIndex; i++) {
+		const match = lines[i].match(/^name\s*:\s*(.+)\s*$/i);
+		if (!match) continue;
+
+		let name = match[1].trim();
+		if (
+			(name.startsWith('"') && name.endsWith('"')) ||
+			(name.startsWith("'") && name.endsWith("'"))
+		) {
+			name = name.slice(1, -1).trim();
+		}
+		return name.length > 0 ? name : null;
+	}
+
+	return null;
+}
+
+function discoverNamesInDir(dir: string): string[] {
+	const names: string[] = [];
+	if (!existsSync(dir)) return names;
+
+	for (const entry of readdirSync(dir)) {
+		if (!entry.endsWith(".md")) continue;
+
+		const full = join(dir, entry);
+		try {
+			if (!statSync(full).isFile()) continue;
+			const content = readFileSync(full, "utf-8");
+			const name = parseFrontmatterName(content) ?? basename(entry, ".md");
+			if (name.length > 0) names.push(name);
+		} catch {
+			// skip unreadable entries
+		}
+	}
+
+	return names;
+}
+
+function findNearestAncestorDir(startDir: string, childDirName: string): string | null {
+	let dir = startDir;
+	const root = "/";
+	while (dir !== root) {
+		const candidate = join(dir, ".pi", childDirName);
+		try {
+			if (statSync(candidate).isDirectory()) return candidate;
+		} catch {
+			// ignore missing or unreadable candidates
+		}
+		const parent = join(dir, "..");
+		if (parent === dir) break;
+		dir = parent;
+	}
+
+	return null;
 }
 
 function formatDurationShort(ms: number): string {
@@ -381,7 +453,20 @@ function discoverResources(): Resources {
 		extensions.push(formatExtensionName(String(pkg)));
 	}
 
-	return { version, scopedModels, contextFiles, skills, extensions };
+	// subagents — user agents + nearest project .pi/agents
+	const subagentNames = new Set<string>();
+	for (const name of discoverNamesInDir(join(agentDir, "agents"))) {
+		subagentNames.add(name);
+	}
+	const projectAgentsDir = findNearestAncestorDir(process.cwd(), "agents");
+	if (projectAgentsDir) {
+		for (const name of discoverNamesInDir(projectAgentsDir)) {
+			subagentNames.add(name);
+		}
+	}
+	const subagents = Array.from(subagentNames).sort((a, b) => a.localeCompare(b));
+
+	return { version, scopedModels, contextFiles, skills, extensions, subagents };
 }
 
 // ─── Extension name formatting ───────────────────────────────────────────────
@@ -532,6 +617,11 @@ export default function (pi: ExtensionAPI) {
 			// extensions
 			if (r.extensions.length > 0) {
 				lines.push(formatLine("Extensions", r.extensions, theme));
+			}
+
+			// subagents
+			if (r.subagents.length > 0) {
+				lines.push(formatLine("Subagents", r.subagents, theme));
 			}
 
 			// one trailing blank line
