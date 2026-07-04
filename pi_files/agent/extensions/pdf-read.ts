@@ -1,5 +1,5 @@
 /**
- * pi-pdf-vision-read
+ * pi-pdf-read
  *
  * Overrides the built-in `read` tool so that when a PDF file is opened,
  * its pages are rendered to PNG images. A vision-capable model can then
