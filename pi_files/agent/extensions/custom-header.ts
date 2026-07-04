@@ -454,11 +454,11 @@ function removeLeadingWidgetSpacer(tui: unknown, component: unknown): void {
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	clear();
-
 	let dismissed = false;
 
 	pi.on("session_start", async (event, ctx) => {
+		if (ctx.mode !== "tui") return;
+
 		if (event.reason === "new" || event.reason === "resume") {
 			clear();
 			dismissed = false;
@@ -549,6 +549,8 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Auto-dismiss on first prompt ─────────────────────────────────
 	pi.on("agent_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+
 		if (!dismissed) {
 			dismissed = true;
 			try {

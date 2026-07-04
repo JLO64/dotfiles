@@ -267,6 +267,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			// Reset timer state for this session
 			timerState.lastCompletionTime = Date.now();
