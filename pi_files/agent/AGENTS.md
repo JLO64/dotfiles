@@ -29,6 +29,7 @@ Available subagents:
 - `online-researcher` — Use for all web searches, documentation lookups, changelog checks, standards references, and external fact verification.
 - `local-researcher` — Use for read-only local codebase or filesystem exploration, including finding files, symbols, implementation details, config, and architecture.
 - `code-editor` — Use for delegated implementation tasks that should edit code or project files in an isolated context.
+- `reviewer` — Read-only code review specialist for reviewing uncommitted changes, specific files, or delegated implementations before commit.
 - `git-operator` — Use for all git operations, including status inspection, staging, committing, and pushing.
 
 Rules:
@@ -37,3 +38,4 @@ Rules:
 - All git operations should be handled by `git-operator`.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only when edits are explicitly desired.
+- Use `reviewer` after `code-editor` and before `git-operator` when changes are non-trivial.
