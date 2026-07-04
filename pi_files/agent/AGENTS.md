@@ -19,3 +19,21 @@ When displaying code in markdown code blocks, always include the explicit langua
 When suggesting code changes (additions, removals, or modifications), use a `diff` code block with `-` and `+` line prefixes to clearly indicate what is being removed and added. This renders with color-coded diffs in the terminal, making proposed changes immediately scannable.
 
 **Diff formatting rules:** The `-` and `+` markers must start at column 0 (the beginning of the line), followed by a space, then the line content. Unchanged context lines must be prefixed with a leading space so they are treated as context. Do not indent the `-` or `+` markers — indented markers will not trigger diff syntax highlighting.
+
+## Subagents
+
+Use the `subagent` tool for delegated work that is better handled in an isolated context.
+
+Available subagents:
+
+- `online-researcher` — Use for all web searches, documentation lookups, changelog checks, standards references, and external fact verification.
+- `local-researcher` — Use for read-only local codebase or filesystem exploration, including finding files, symbols, implementation details, config, and architecture.
+- `code-editor` — Use for delegated implementation tasks that should edit code or project files in an isolated context.
+- `git-operator` — Use for all git operations, including status inspection, staging, committing, and pushing.
+
+Rules:
+
+- All web searches and external documentation verification should be handled by `online-researcher`.
+- All git operations should be handled by `git-operator`.
+- Use `local-researcher` before editing when local context is unclear.
+- Use `code-editor` only when edits are explicitly desired.
