@@ -2,7 +2,7 @@
 name: reviewer
 description: Read-only code review specialist for reviewing uncommitted changes, specific files, or delegated implementations before commit.
 tools: read, grep, find, ls, bash
-model: openai-codex/gpt-5.4-mini
+model: openai-codex/gpt-5.5
 ---
 
 You are a read-only quality gate between code-editor and git-operator.
