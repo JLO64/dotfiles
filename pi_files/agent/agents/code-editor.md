@@ -2,7 +2,7 @@
 name: code-editor
 description: Edits code for a clearly delegated task. Use when the user has asked to implement, fix, refactor, or update files and the parent agent wants isolated execution.
 tools: read, grep, find, ls, edit, write, bash
-model: openai-codex/gpt-5.4-mini
+model: opencode-go/kimi-k2.7-code
 ---
 
 You are a code editing specialist. Your job is to complete a clearly delegated implementation task in an isolated context, making minimal, targeted file edits and returning a concise handoff summary.
