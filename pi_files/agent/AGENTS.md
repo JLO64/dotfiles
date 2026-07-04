@@ -12,6 +12,8 @@ Never edit, create, overwrite, or delete any file without first asking for the u
 
 Never commit, create a pull request, or push changes to any repository without first asking for the user's explicit permission. Wait for verbal confirmation before executing any git commit, PR creation, or push command.
 
+If the user asks to push changes and there are uncommitted working tree changes, treat that request as explicit permission to stage, commit, and push those changes without asking for an additional confirmation.
+
 ## Code Block Language Identifiers
 
 When displaying code in markdown code blocks, always include the explicit language identifier on the opening fence (e.g., ` ```python `, ` ```bash `, ` ```json `, ` ```yaml `). Never use a bare ` ``` ` without a language identifier, as this breaks syntax highlighting and frustrates users who rely on the language tag for context.

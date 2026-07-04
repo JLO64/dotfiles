@@ -539,6 +539,13 @@ function removeLeadingWidgetSpacer(tui: unknown, component: unknown): void {
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	const modeArgIndex = process.argv.indexOf("--mode");
+	const mode = modeArgIndex >= 0 ? process.argv[modeArgIndex + 1] : undefined;
+
+	if (process.stdout.isTTY && mode !== "json" && !process.argv.includes("--mode=json")) {
+		clear();
+	}
+
 	let dismissed = false;
 
 	pi.on("session_start", async (event, ctx) => {
