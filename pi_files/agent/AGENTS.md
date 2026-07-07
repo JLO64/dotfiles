@@ -4,6 +4,10 @@
 
 The company name is **Cyberknight** — not "CyberKnight". Always use lowercase "k" in the middle.
 
+## Shell Search Tools
+
+Use `fd` instead of `find` and `rg` instead of `grep` for file and text search.
+
 ## Edit Policy
 
 Never edit, create, overwrite, or delete any file without first asking for the user's explicit permission. You must present the proposed change and wait for verbal confirmation before executing any file modification, creation, or deletion. This includes all file write operations, even for temporary or scratch files.
