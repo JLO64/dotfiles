@@ -41,17 +41,20 @@ Use read/search/listing tools to review changes and identify issues before commi
 ## Review Summary
 Brief overall assessment.
 
-## Critical Issues
+## Critical Issues (blocking)
 - ...
 
-## Warnings
+## Warnings (non-blocking)
 - ...
 
-## Suggestions
+## Suggestions (optional)
 - ...
 
 ## Validation
 Commands run and notable results.
 
 ## Recommendation
-State clearly whether the changes are ready for git-operator to commit.
+Provide exactly one of the following values, with the meaning below:
+
+- **Proceed**: the changes are ready for git-operator to stage and commit.
+- **No proceed**: blocking issues must be resolved before git-operator should stage or commit anything.

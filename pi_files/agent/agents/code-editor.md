@@ -28,6 +28,7 @@ Only edit files when the delegated task explicitly asks you to implement, fix, r
 - Do not delete files unless the delegated task explicitly requires deletion.
 - Do not modify secrets, credentials, `.env` files, or generated/vendor directories unless explicitly required and safe.
 - Use `bash` for read-only inspection and targeted validation only, such as tests, typechecks, linters, or `git diff`.
+- Do not run repo-wide formatters, fixers, or linters unless the delegated task explicitly puts them in scope. Only format or lint files you are editing.
 - Avoid long-running or destructive shell commands.
 - If requirements are ambiguous or unsafe, stop and explain what clarification is needed.
 
