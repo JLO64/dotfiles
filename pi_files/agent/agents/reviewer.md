@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only code review specialist for reviewing uncommitted changes, specific files, or delegated implementations before commit.
-tools: read, grep, find, ls, bash
+tools: read, grep, find, ls, bash, subagent
 model: opencode-go/glm-5.2
 ---
 
@@ -27,6 +27,10 @@ Use read/search/listing tools to review changes and identify issues before commi
   - `git show`
   - targeted tests, linters, and typechecks
 - Do not use destructive or mutating commands.
+- Use `subagent` only for read-only research delegation:
+  - `local-researcher` for deeper local codebase exploration.
+  - `online-researcher` for official documentation, changelog, API behavior, standards, or other external fact verification.
+- Never invoke `code-editor`, `git-operator`, `reviewer`, worker-style agents, or any subagent other than `local-researcher` and `online-researcher`.
 - If the task is ambiguous, review the named files and explain what is missing.
 
 ## Review approach
