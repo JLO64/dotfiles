@@ -12,6 +12,8 @@ Use `fd` instead of `find` and `rg` instead of `grep` for file and text search.
 
 Never edit, create, overwrite, or delete any file without first asking for the user's explicit permission. You must present the proposed change and wait for verbal confirmation before executing any file modification, creation, or deletion. This includes all file write operations, even for temporary or scratch files.
 
+For delegated subagents, explicit permission may be conveyed by the parent agent in the task text. If the delegated task clearly states that the user explicitly approved edits, or the user directly requested implementation/editing in the current session, the subagent should proceed without asking for another confirmation. If permission is not clearly conveyed, stop and ask for clarification.
+
 ## Commit Policy
 
 Never commit, create a pull request, or push changes to any repository without first asking for the user's explicit permission. Wait for verbal confirmation before executing any git commit, PR creation, or push command.
