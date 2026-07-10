@@ -115,8 +115,17 @@ function check_git_fetch {
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd check_git_fetch
 
+# Use a compact first line in narrower terminals.
+function prompt_location_info {
+    if (( COLUMNS <= 100 )); then
+        print -r -- "%B%F{226} ${PWD:t}%f%b"
+    else
+        print -r -- "%B%F{226} %~%f%b %F{239}at%f 󰥔%t"
+    fi
+}
+
 # Base prompt without the fetch message line
-BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f %B%F{226} %~%f%b$(git_branch_info) %F{239}at%f 󰥔%t
+BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f $(prompt_location_info)$(git_branch_info)
 ╰─$(virtualenv_info)○ '
 
 # precmd hook to prepend the git fetch message as the first line of the prompt
