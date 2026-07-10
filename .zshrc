@@ -120,12 +120,16 @@ function prompt_location_info {
     if (( COLUMNS <= 100 )); then
         print -r -- "%B%F{226} ${PWD:t}%f%b"
     else
-        print -r -- "%B%F{226} %~%f%b %F{239}at%f 󰥔%t"
+        print -r -- "%B%F{226} %~%f%b"
     fi
 }
 
+function prompt_time_info {
+    (( COLUMNS > 100 )) && print -r -- "%F{239}at%f 󰥔%t"
+}
+
 # Base prompt without the fetch message line
-BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f $(prompt_location_info)$(git_branch_info)
+BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f $(prompt_location_info)$(git_branch_info) $(prompt_time_info)
 ╰─$(virtualenv_info)○ '
 
 # precmd hook to prepend the git fetch message as the first line of the prompt
@@ -571,4 +575,7 @@ _git_summarize() {
 
 # Register the completion function
 compdef _git_summarize git_summarize
+
+# bun completions
+[ -s "/Users/64julianlopez/.bun/_bun" ] && source "/Users/64julianlopez/.bun/_bun"
 
