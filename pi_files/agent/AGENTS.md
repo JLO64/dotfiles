@@ -36,6 +36,27 @@ When suggesting code changes (additions, removals, or modifications), use a `dif
 
 Use the `subagent` tool for delegated work that is better handled in an isolated context.
 
+### Subagent Context
+
+Subagents run with isolated context. They do not automatically inherit prior
+conversation, files the parent has read, previous agent findings, or user
+approval details unless those are included in the task prompt.
+
+Always set `cwd` to the repository the subagent should inspect or modify.
+Relative paths in the task resolve from that `cwd`. If a task needs files from
+another repository, provide absolute paths or quote the needed context.
+
+### Preferred Subagent Prompt Format
+
+When delegating to a subagent, prefer this compact structure:
+
+- `Task:` one-sentence outcome.
+- `Mode:` read-only, edit-approved, review, or git.
+- `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
+- `Scope:` target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
+- `Instructions:` specific actions to perform.
+- `Return:` expected output format, including blockers, risks, and file references.
+
 Available subagents:
 
 - `online-researcher` — Use for all web searches, documentation lookups, changelog checks, standards references, and external fact verification.
@@ -51,3 +72,4 @@ Rules:
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only when edits are explicitly desired.
 - Use `reviewer` after `code-editor` and before `git-operator` when changes are non-trivial.
+- When a subagent task references files outside its `cwd`, use absolute paths or include the relevant file contents/context in the prompt.
