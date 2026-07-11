@@ -18,6 +18,9 @@
  * - D: delete to end of line
  * - S: substitute line (delete line content + insert mode)
  * - s: Flash-style cursor jump (normal mode only; type pattern, then label)
+ * - v: characterwise Visual mode; v/Escape exits, o swaps selection ends
+ * - Visual motions: h/j/k/l, w/e/b/W/E/B, 0/$/^/_, gg/G, {/}, f/F/t/T, ;/,
+ * - Visual operators: d/x delete, c/s change, y yank; i/a text objects select ranges
  * - cl: substitute char (delete char + insert mode)
  * - d{motion}: delete with motion (`w/b/e` + `W/B/E`, `$`, `0`, `^`, `dd`/`d_`, `f/t/F/T{char}`)
  * - c{motion}: change with same motion set as `d` (then enter insert mode)
@@ -77,6 +80,7 @@ import type {
   LastCharMotion,
   FlashState,
   FlashMatch,
+  VisualState,
 } from "./types.js";
 import {
   NORMAL_KEYS,
@@ -124,6 +128,7 @@ type ModalEditorInternals = {
   preferredVisualCol?: number | null;
   lastAction?: string | null;
   historyIndex?: number;
+  scrollOffset?: number;
   onChange?: (text: string) => void;
   tui?: { requestRender?: () => void };
   pushUndoSnapshot?: () => void;
@@ -142,6 +147,7 @@ export class ModalEditor extends CustomEditor {
   private pendingReplace: boolean = false;
   private lastCharMotion: LastCharMotion | null = null;
   private flashState: FlashState | null = null;
+  private visualState: VisualState | null = null;
   private discardingBracketedPasteInNormalMode: boolean = false;
   private pendingEscWhileDiscardingBracketedPasteInNormalMode: boolean = false;
   private wordBoundaryCache = new WordBoundaryCache();
@@ -183,6 +189,11 @@ export class ModalEditor extends CustomEditor {
   override setText(text: string): void {
     this.clearRedoStack();
     this.flashState = null;
+    this.visualState = null;
+    if (this.mode === "visual") {
+      this.mode = "normal";
+      this.clearPendingState();
+    }
     super.setText(text);
   }
 
@@ -490,6 +501,11 @@ export class ModalEditor extends CustomEditor {
       return;
     }
 
+    if (this.mode === "visual") {
+      this.handleVisualMode(data);
+      return;
+    }
+
     if (this.pendingReplace) {
       this.pendingReplace = false;
       if (!this.isPrintableInput(data)) {
@@ -558,6 +574,11 @@ export class ModalEditor extends CustomEditor {
   }
 
   private handleEscape(): void {
+    if (this.mode === "visual") {
+      this.exitVisualMode();
+      return;
+    }
+
     if (
       this.pendingMotion
       || this.pendingTextObject
@@ -898,6 +919,344 @@ export class ModalEditor extends CustomEditor {
     this.cancelPendingOperator(data);
   }
 
+  private enterVisualMode(): void {
+    const cursor = this.getCursor();
+    this.clearPendingState();
+    this.mode = "visual";
+    this.visualState = {
+      anchor: { line: cursor.line, col: cursor.col },
+      rangeOverride: null,
+    };
+    this.requestRender();
+  }
+
+  private exitVisualMode(): void {
+    this.visualState = null;
+    this.clearPendingState();
+    this.mode = "normal";
+    this.requestRender();
+  }
+
+  private requestRender(): void {
+    const editor = this as unknown as { tui?: { requestRender?: () => void } };
+    editor.tui?.requestRender?.();
+  }
+
+  private moveVisualHead(action: () => void): void {
+    if (!this.visualState) return;
+    this.visualState.rangeOverride = null;
+    action();
+    this.requestRender();
+  }
+
+  private swapVisualEnds(): void {
+    if (!this.visualState) return;
+    const previousAnchor = this.visualState.anchor;
+    const head = this.getCursor();
+    this.visualState.anchor = { line: head.line, col: head.col };
+    this.visualState.rangeOverride = null;
+    this.moveCursorToAbsoluteIndex(
+      this.getAbsoluteIndex(previousAnchor.line, previousAnchor.col),
+    );
+  }
+
+  private handleVisualMode(data: string): void {
+    if (!this.visualState) {
+      this.mode = "normal";
+      return;
+    }
+
+    if (this.pendingTextObject) {
+      this.handleVisualTextObject(data);
+      return;
+    }
+
+    if (this.pendingMotion) {
+      const motion = this.pendingMotion;
+      this.pendingMotion = null;
+      if (this.isPrintableInput(data)) {
+        this.moveVisualHead(() => this.executeCharMotion(motion, data));
+      } else {
+        this.prefixCount = "";
+        this.operatorCount = "";
+      }
+      return;
+    }
+
+    if (this.pendingG) {
+      this.pendingG = false;
+      if (data === "g") {
+        const count = this.takeTotalCount(1);
+        this.moveVisualHead(() => this.moveCursorToLineStart(count - 1));
+      } else {
+        this.prefixCount = "";
+        this.operatorCount = "";
+      }
+      return;
+    }
+
+    if (this.prefixCount.length > 0 && this.isDigit(data)) {
+      this.prefixCount += data;
+      return;
+    }
+    if (this.prefixCount.length === 0 && this.isCountStarter(data)) {
+      this.prefixCount = data;
+      return;
+    }
+
+    if (data === "v") {
+      this.exitVisualMode();
+      return;
+    }
+
+    if (data === "o") {
+      this.prefixCount = "";
+      this.operatorCount = "";
+      this.swapVisualEnds();
+      return;
+    }
+
+    if (data === "d" || data === "x") {
+      this.applyVisualSelection("delete");
+      return;
+    }
+    if (data === "c" || data === "s") {
+      this.applyVisualSelection("change");
+      return;
+    }
+    if (data === "y") {
+      this.applyVisualSelection("yank");
+      return;
+    }
+
+    if (data === "i" || data === "a") {
+      this.pendingTextObject = data;
+      return;
+    }
+
+    if (data === "g") {
+      this.pendingG = true;
+      return;
+    }
+
+    if (data === "G") {
+      const hadCount = this.prefixCount.length > 0;
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => {
+        if (hadCount) this.moveCursorToLineStart(count - 1);
+        else this.moveCursorToBufferEnd();
+      });
+      return;
+    }
+
+    if (CHAR_MOTION_KEYS.has(data)) {
+      this.pendingMotion = data as PendingMotion;
+      return;
+    }
+
+    if (data === ";" && this.lastCharMotion) {
+      this.moveVisualHead(() =>
+        this.executeCharMotion(this.lastCharMotion!.motion, this.lastCharMotion!.char, false),
+      );
+      return;
+    }
+    if (data === "," && this.lastCharMotion) {
+      this.moveVisualHead(() =>
+        this.executeCharMotion(
+          reverseCharMotion(this.lastCharMotion!.motion),
+          this.lastCharMotion!.char,
+          false,
+        ),
+      );
+      return;
+    }
+
+    if (data === "h" || data === "l") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveCursorBy(data === "h" ? -count : count));
+      return;
+    }
+    if (data === "j" || data === "k") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveCursorVertically(data === "j" ? count : -count));
+      return;
+    }
+
+    if (data === "0") {
+      this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveCursorToCol(0));
+      return;
+    }
+    if (data === "$") {
+      this.takeTotalCount(1);
+      this.moveVisualHead(() => {
+        const line = this.getLines()[this.getCursor().line] ?? "";
+        this.moveCursorToCol(line.length);
+      });
+      return;
+    }
+    if (data === "^") {
+      this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveCursorToFirstNonWhitespace());
+      return;
+    }
+    if (data === "_") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => {
+        if (count > 1) this.moveCursorVertically(count - 1);
+        this.moveCursorToFirstNonWhitespace();
+      });
+      return;
+    }
+
+    if (data === "{" || data === "}") {
+      this.moveVisualHead(() =>
+        this.executeParagraphMotion(data === "}" ? "forward" : "backward"),
+      );
+      return;
+    }
+
+    if (data === "w") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("forward", "start", count, "word"));
+      return;
+    }
+    if (data === "e") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("forward", "end", count, "word"));
+      return;
+    }
+    if (data === "b") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("backward", "start", count, "word"));
+      return;
+    }
+    if (data === "W") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("forward", "start", count, "WORD"));
+      return;
+    }
+    if (data === "E") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("forward", "end", count, "WORD"));
+      return;
+    }
+    if (data === "B") {
+      const count = this.takeTotalCount(1);
+      this.moveVisualHead(() => this.moveWord("backward", "start", count, "WORD"));
+      return;
+    }
+
+    this.prefixCount = "";
+    this.operatorCount = "";
+    if (!this.isPrintableChunk(data)) {
+      this.exitVisualMode();
+      super.handleInput(data);
+    }
+  }
+
+  private handleVisualTextObject(data: string): void {
+    if (!this.visualState || !this.pendingTextObject) return;
+
+    const kind = this.pendingTextObject;
+    const count = this.takeTotalCount(1);
+    this.pendingTextObject = null;
+
+    let range: { startAbs: number; endAbs: number } | null = null;
+    if (data === "w") {
+      range = this.getWordObjectRange(kind, count);
+    } else if (TEXT_OBJECT_DELIMITERS.has(data)) {
+      const cursor = this.getCursor();
+      range = findDelimiterRange(
+        this.getLines(),
+        cursor.line,
+        cursor.col,
+        data,
+        kind,
+      );
+    }
+
+    if (range) this.setVisualSelectionRange(range.startAbs, range.endAbs);
+  }
+
+  private setVisualSelectionRange(startAbs: number, endAbs: number): void {
+    if (!this.visualState) return;
+
+    const text = this.getText();
+    const start = Math.max(0, Math.min(startAbs, text.length));
+    const end = Math.max(start, Math.min(endAbs, text.length));
+    const startCursor = this.getCursorFromAbsoluteIndex(text, start);
+    let headAbs = start;
+
+    if (end > start) {
+      const endCursor = this.getCursorFromAbsoluteIndex(text, end);
+      const lines = this.getLines();
+      if (endCursor.col > 0) {
+        const line = lines[endCursor.line] ?? "";
+        const segments = getLineGraphemes(line.slice(0, endCursor.col));
+        const last = segments[segments.length - 1];
+        headAbs = this.getAbsoluteIndex(endCursor.line, last?.start ?? endCursor.col - 1);
+      } else if (endCursor.line > 0) {
+        const previousLine = endCursor.line - 1;
+        headAbs = this.getAbsoluteIndex(previousLine, (lines[previousLine] ?? "").length);
+      }
+    }
+
+    this.visualState.anchor = startCursor;
+    this.visualState.rangeOverride = { startAbs: start, endAbs: end };
+    this.moveCursorToAbsoluteIndex(headAbs);
+  }
+
+  private getVisualSelectionRange(): { startAbs: number; endAbs: number } | null {
+    if (!this.visualState) return null;
+    if (this.visualState.rangeOverride) return this.visualState.rangeOverride;
+
+    const anchor = this.visualState.anchor;
+    const head = this.getCursor();
+    const anchorAbs = this.getAbsoluteIndex(anchor.line, anchor.col);
+    const headAbs = this.getAbsoluteIndex(head.line, head.col);
+    const startAbs = Math.min(anchorAbs, headAbs);
+    const maxEndpoint = anchorAbs >= headAbs ? anchor : head;
+    const line = this.getLines()[maxEndpoint.line] ?? "";
+    const grapheme = this.getGraphemeRangeAtCol(line, maxEndpoint.col, 1);
+    const endAbs = grapheme
+      ? this.getAbsoluteIndex(maxEndpoint.line, grapheme.end)
+      : Math.max(anchorAbs, headAbs);
+
+    return { startAbs, endAbs };
+  }
+
+  private applyVisualSelection(operation: "delete" | "change" | "yank"): void {
+    const range = this.getVisualSelectionRange();
+    if (!range) {
+      this.exitVisualMode();
+      return;
+    }
+
+    const text = this.getText();
+    const start = Math.max(0, Math.min(range.startAbs, text.length));
+    const end = Math.max(start, Math.min(range.endAbs, text.length));
+    const selected = text.slice(start, end);
+
+    this.visualState = null;
+    this.clearPendingState();
+
+    if (operation === "yank") {
+      if (selected) this.writeToRegister(selected);
+      this.mode = "normal";
+      this.moveCursorToAbsoluteIndex(start);
+      return;
+    }
+
+    if (selected) this.writeToRegister(selected);
+    this.mode = operation === "change" ? "insert" : "normal";
+    if (end > start) {
+      this.replaceTextInBuffer(text.slice(0, start) + text.slice(end), start);
+    } else {
+      this.moveCursorToAbsoluteIndex(start);
+    }
+  }
+
   private handleNormalMode(data: string): void {
     if (this.pendingG) {
       if (this.isDigit(data)) {
@@ -1050,6 +1409,11 @@ export class ModalEditor extends CustomEditor {
 
     if (data === "s") {
       this.enterFlashMode();
+      return;
+    }
+
+    if (data === "v") {
+      this.enterVisualMode();
       return;
     }
 
@@ -2412,6 +2776,124 @@ export class ModalEditor extends CustomEditor {
     }));
   }
 
+  private renderVisualOverlays(width: number, baseLines: string[]): string[] {
+    if (this.mode !== "visual" || !this.visualState) return baseLines;
+
+    const selection = this.getVisualSelectionRange();
+    if (!selection || selection.endAbs <= selection.startAbs) return baseLines;
+
+    const paddingX = Math.min(
+      this.getPaddingX(),
+      Math.max(0, Math.floor((width - 1) / 2)),
+    );
+    const contentWidth = Math.max(1, width - paddingX * 2);
+    const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+    const leftPadding = " ".repeat(paddingX);
+    const layoutLines = this.buildFlashLayout(layoutWidth);
+    if (layoutLines.length === 0) return baseLines;
+
+    const cursorLayoutIndex = this.findLayoutLineIndex(layoutLines, this.getCursor());
+    if (cursorLayoutIndex === -1) return baseLines;
+
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } })
+      .tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const scrollOffset = this.getRenderedScrollOffset(
+      layoutLines.length,
+      maxVisibleLines,
+    );
+
+    const contentStart = 1;
+    const contentEnd = baseLines.length - 1;
+    const result = [...baseLines];
+
+    for (let layoutIndex = scrollOffset; layoutIndex < layoutLines.length; layoutIndex++) {
+      if (layoutIndex >= scrollOffset + maxVisibleLines) break;
+
+      const renderedContentIndex = contentStart + (layoutIndex - scrollOffset);
+      if (renderedContentIndex >= contentEnd) break;
+
+      const layoutLine = layoutLines[layoutIndex]!;
+      const lineStartAbs = this.getAbsoluteIndex(layoutLine.logicalLine, 0);
+      const rowStartAbs = lineStartAbs + layoutLine.startCol;
+      const rowEndAbs = lineStartAbs + layoutLine.endCol;
+      const selectedStart = Math.max(selection.startAbs, rowStartAbs);
+      const selectedEnd = Math.min(selection.endAbs, rowEndAbs);
+      if (selectedEnd <= selectedStart) continue;
+
+      const startVisibleCol = this.computeVisibleColumn(
+        layoutLine.text,
+        selectedStart - rowStartAbs,
+      );
+      const endVisibleCol = this.computeVisibleColumn(
+        layoutLine.text,
+        selectedEnd - rowStartAbs,
+      );
+      if (
+        startVisibleCol === null
+        || endVisibleCol === null
+        || endVisibleCol <= startVisibleCol
+      ) {
+        continue;
+      }
+
+      const renderedLine = result[renderedContentIndex]!;
+      if (!renderedLine.startsWith(leftPadding)) continue;
+
+      const contentStartIndex = leftPadding.length;
+      const contentEndIndex = renderedLine.length - (paddingX > 0 ? paddingX : 0);
+      const beforePadding = renderedLine.slice(0, contentStartIndex);
+      const afterPadding = renderedLine.slice(contentEndIndex);
+      const content = renderedLine.slice(contentStartIndex, contentEndIndex);
+      const highlighted = this.highlightVisibleRange(
+        content,
+        startVisibleCol,
+        endVisibleCol,
+      );
+      result[renderedContentIndex] = beforePadding + highlighted + afterPadding;
+    }
+
+    return result.map((line) =>
+      visibleWidth(line) > width ? truncateToWidth(line, width, "") : line,
+    );
+  }
+
+  private highlightVisibleRange(content: string, startCol: number, endCol: number): string {
+    const selectionBackground = "\x1b[48;5;240m";
+    const reset = "\x1b[0m";
+    let result = "";
+    let visibleCol = 0;
+    let index = 0;
+
+    while (index < content.length) {
+      if (content[index] === "\x1b") {
+        const ansiEnd = this.findAnsiSequenceEnd(content, index);
+        if (ansiEnd !== null) {
+          result += content.slice(index, ansiEnd);
+          index = ansiEnd;
+          continue;
+        }
+      }
+
+      const grapheme = getLineGraphemes(content.slice(index))[0];
+      if (!grapheme) {
+        result += content.slice(index);
+        break;
+      }
+
+      const segment = content.slice(index, index + grapheme.end);
+      const segmentWidth = visibleWidth(segment);
+      const selected = visibleCol < endCol && visibleCol + segmentWidth > startCol;
+      result += selected
+        ? `${selectionBackground}${segment}${reset}`
+        : segment;
+      visibleCol += segmentWidth;
+      index += segment.length;
+    }
+
+    return result;
+  }
+
   private renderFlashOverlays(width: number, baseLines: string[]): string[] {
     if (!this.flashState || this.flashState.matches.length === 0) return baseLines;
 
@@ -2427,18 +2909,15 @@ export class ModalEditor extends CustomEditor {
     if (layoutLines.length === 0) return baseLines;
 
     const cursor = this.getCursor();
-    const cursorLayoutIndex = layoutLines.findIndex(
-      (l) => l.logicalLine === cursor.line && l.startCol <= cursor.col && cursor.col < l.endCol,
-    );
+    const cursorLayoutIndex = this.findLayoutLineIndex(layoutLines, cursor);
     if (cursorLayoutIndex === -1) return baseLines;
 
     const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } }).tui?.terminal?.rows ?? 24;
     const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
-    const maxScrollOffset = Math.max(0, layoutLines.length - maxVisibleLines);
-    let scrollOffset = 0;
-    if (cursorLayoutIndex >= maxVisibleLines) {
-      scrollOffset = Math.min(cursorLayoutIndex - maxVisibleLines + 1, maxScrollOffset);
-    }
+    const scrollOffset = this.getRenderedScrollOffset(
+      layoutLines.length,
+      maxVisibleLines,
+    );
 
     const contentStart = 1;
     const contentEnd = baseLines.length - 1;
@@ -2516,6 +2995,32 @@ export class ModalEditor extends CustomEditor {
       }
     }
     return layoutLines;
+  }
+
+  private getRenderedScrollOffset(layoutLineCount: number, maxVisibleLines: number): number {
+    const editor = this as unknown as ModalEditorInternals;
+    const maxScrollOffset = Math.max(0, layoutLineCount - maxVisibleLines);
+    const offset = Number.isInteger(editor.scrollOffset) ? editor.scrollOffset! : 0;
+    return Math.max(0, Math.min(offset, maxScrollOffset));
+  }
+
+  private findLayoutLineIndex(
+    layoutLines: Array<{ logicalLine: number; startCol: number; endCol: number }>,
+    cursor: { line: number; col: number },
+  ): number {
+    for (let index = 0; index < layoutLines.length; index++) {
+      const layoutLine = layoutLines[index]!;
+      if (layoutLine.logicalLine !== cursor.line) continue;
+      const next = layoutLines[index + 1];
+      const isLastForLogicalLine = !next || next.logicalLine !== cursor.line;
+      if (
+        cursor.col >= layoutLine.startCol
+        && (cursor.col < layoutLine.endCol || (isLastForLogicalLine && cursor.col === layoutLine.endCol))
+      ) {
+        return index;
+      }
+    }
+    return -1;
   }
 
   private computeVisibleColumn(lineText: string, colOffset: number): number | null {
@@ -2596,7 +3101,8 @@ export class ModalEditor extends CustomEditor {
   }
 
   render(width: number): string[] {
-    const lines = this.renderFlashOverlays(width, super.render(width));
+    const visualLines = this.renderVisualOverlays(width, super.render(width));
+    const lines = this.renderFlashOverlays(width, visualLines);
     if (lines.length === 0) return lines;
 
     const rawLabel = this.getModeLabel();
@@ -2638,6 +3144,14 @@ export class ModalEditor extends CustomEditor {
     }
 
     if (this.mode === "insert") return "[INSERT] ";
+    if (this.mode === "visual") {
+      const count = `${this.prefixCount}${this.operatorCount}`;
+      if (this.pendingTextObject) return `[VISUAL ${count}${this.pendingTextObject}_ ]`;
+      if (this.pendingMotion) return `[VISUAL ${count}${this.pendingMotion}_ ]`;
+      if (this.pendingG) return `[VISUAL ${count}g_ ]`;
+      if (count) return `[VISUAL ${count}_ ]`;
+      return "[VISUAL] ";
+    }
 
     const prefixCount = this.prefixCount;
     const operatorCount = this.operatorCount;

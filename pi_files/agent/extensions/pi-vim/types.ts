@@ -2,8 +2,13 @@
  * Types and constants for vim-mode extension
  */
 
-export type Mode = "normal" | "insert";
+export type Mode = "normal" | "insert" | "visual";
 export type CharMotion = "f" | "F" | "t" | "T";
+
+export interface VisualState {
+  anchor: { line: number; col: number };
+  rangeOverride: { startAbs: number; endAbs: number } | null;
+}
 export type PendingMotion = CharMotion | null;
 export type PendingOperator = "d" | "c" | "y" | null;
 
