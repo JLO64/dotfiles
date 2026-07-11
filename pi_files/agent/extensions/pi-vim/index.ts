@@ -67,7 +67,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
-import { wordWrapLine } from "@mariozechner/pi-tui/dist/components/editor.js";
+import { wordWrapLine } from "./word-wrap.js";
 
 import type {
   Mode,
