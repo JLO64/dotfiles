@@ -1,17 +1,16 @@
 {
-  "lastChangelogVersion": "0.79.8",
+  "lastChangelogVersion": "0.80.6",
   "quietStartup": true,
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "gpt-5.6-sol",
   "enabledModels": [
-    "openai-codex/gpt-5.5",
-    "openai-codex/gpt-5.4-mini",
-    "opencode-go/glm-5.2",
-    "lm-studio/google/gemma-4-26b-a4b-qat",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "lm-studio/google/gemma-4-26b-a4b-qat"
   ],
   "packages": [],
-  "defaultThinkingLevel": "high",
-  "theme":"rose-pine-moon",
+  "defaultThinkingLevel": "medium",
+  "theme": "rose-pine-moon",
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
     "enabled": false
