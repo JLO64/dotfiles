@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 
 // ─── Streaming state ─────────────────────────────────────────────────────────
@@ -87,13 +87,17 @@ function getGitInfo(cwd: string): GitInfo | null {
 
 // ─── Model name shortening ──────────────────────────────────────────────────
 
-function shortenModelName(provider: string | undefined, modelId: string): string {
+function shortenModelName(
+	provider: string | undefined,
+	modelId: string,
+	omitProvider = false,
+): string {
 	// Strip redundant maker prefix from model ID (e.g. deepseek/deepseek-v4-flash → deepseek-v4-flash)
 	let model = modelId;
 	const makerIdx = model.lastIndexOf("/");
 	if (makerIdx >= 0) model = model.slice(makerIdx + 1);
 
-	if (!provider) return model;
+	if (omitProvider || !provider) return model;
 
 	return `${provider}/${model}`;
 }
@@ -351,7 +355,10 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const home = process.env.HOME || process.env.USERPROFILE || "";
-					const displayCwd = truncateDisplayPath(cwd, home);
+					const isCompact = width < 100;
+					const displayCwd = isCompact
+						? basename(cwd)
+						: truncateDisplayPath(cwd, home);
 
 					// Token stats and cost (cumulative across the active branch only)
 					let totalInput = 0;
@@ -386,7 +393,11 @@ export default function (pi: ExtensionAPI) {
 					const contextPercent = contextUsage?.percent ?? 0;
 
 					// Model
-					const modelName = shortenModelName(ctx.model?.provider, ctx.model?.id || "no-model");
+					const modelName = shortenModelName(
+						ctx.model?.provider,
+						ctx.model?.id || "no-model",
+						isCompact,
+					);
 
 					// Time
 					const now = new Date();
@@ -500,7 +511,9 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Time
-					const timePart = theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr) + elapsedStr;
+					const timePart = isCompact
+						? ""
+						: theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr) + elapsedStr;
 
 					const line =
 						modelPart +
@@ -508,7 +521,7 @@ export default function (pi: ExtensionAPI) {
 						theme.fg("dim", " in ") +
 						dirPart +
 						gitPart +
-						theme.fg("dim", " at ") +
+						(isCompact ? "" : theme.fg("dim", " at ")) +
 						timePart;
 					return [truncateToWidth(line, width)];
 				},
