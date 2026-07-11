@@ -2481,7 +2481,9 @@ export class ModalEditor extends CustomEditor {
       result[renderedContentIndex] = beforePadding + newContent + " ".repeat(newPadding) + afterPadding;
     }
 
-    return result;
+    return result.map((line) =>
+      visibleWidth(line) > width ? truncateToWidth(line, width, "") : line,
+    );
   }
 
   private buildFlashLayout(layoutWidth: number): Array<{
@@ -2570,13 +2572,27 @@ export class ModalEditor extends CustomEditor {
   }
 
   private findAnsiSequenceEnd(s: string, start: number): number | null {
-    if (s[start] !== "\x1b") return null;
-    let i = start + 1;
-    if (i >= s.length || s[i] !== "[") return null;
-    i++;
-    while (i < s.length && /[0-9;]/.test(s[i]!)) i++;
-    if (i >= s.length) return null;
-    return i + 1;
+    if (s[start] !== "\x1b" || start + 1 >= s.length) return null;
+
+    const kind = s[start + 1];
+    if (kind === "[") {
+      // CSI: the first byte in the 0x40–0x7e range terminates the sequence.
+      for (let i = start + 2; i < s.length; i++) {
+        const code = s.charCodeAt(i);
+        if (code >= 0x40 && code <= 0x7e) return i + 1;
+      }
+      return null;
+    }
+
+    if (kind === "]" || kind === "_") {
+      // OSC and APC (including Pi's hardware-cursor marker) end in BEL or ST.
+      for (let i = start + 2; i < s.length; i++) {
+        if (s[i] === "\x07") return i + 1;
+        if (s[i] === "\x1b" && s[i + 1] === "\\") return i + 2;
+      }
+    }
+
+    return null;
   }
 
   render(width: number): string[] {
