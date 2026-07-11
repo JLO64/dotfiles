@@ -17,7 +17,8 @@
  * - x: delete char under cursor
  * - D: delete to end of line
  * - S: substitute line (delete line content + insert mode)
- * - s: substitute char (delete char + insert mode)
+ * - s: Flash-style cursor jump (normal mode only; type pattern, then label)
+ * - cl: substitute char (delete char + insert mode)
  * - d{motion}: delete with motion (`w/b/e` + `W/B/E`, `$`, `0`, `^`, `dd`/`d_`, `f/t/F/T{char}`)
  * - c{motion}: change with same motion set as `d` (then enter insert mode)
  * - y{motion}: yank with same motion set as `d` (no text mutation)
@@ -31,8 +32,14 @@
  * - W/B/E: `WORD` motions (whitespace-delimited non-space runs)
  * - {/}: paragraph motions to previous/next paragraph start (line start col 0)
  * - `{count}` prefixes supported for navigation, paragraph motions, and `d/c` word/WORD motions
+ * - i{w}: inside word text object (works with c/d/y)
+ * - a{w}: around word text object (works with c/d/y)
+ * - i(/i), i{/i}, i[/i], i</i>, i", i': inside delimiter text objects
+ * - a(/a), a{/a}, a[/a], a</a>, a", a': around delimiter text objects (include delimiters)
  * - operator forms with braces (`d{`, `d}`, `c{`, `c}`, `y{`, `y}`) are out of scope
  * - counted yank caveat: `y2w`, `2yw`, `y2W`, `2yW` cancel (linewise counts still supported)
+ * - Flash `s` is normal-mode only: no counts, visual mode, or operator-pending support
+ * - Angle-bracket text objects (`i<`, `a<`) use raw balanced `<`/`>`; this can overlap with comparison operators
  * - Shift+Alt+A: go to end of line (insert mode shortcut)
  * - Shift+Alt+I: go to start of line (insert mode shortcut)
  * - Alt+o: open new line below (insert mode shortcut)
@@ -60,6 +67,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@mariozechner/pi-tui";
+import { wordWrapLine } from "@mariozechner/pi-tui/dist/components/editor.js";
 
 import type {
   Mode,
@@ -67,6 +75,8 @@ import type {
   PendingMotion,
   PendingOperator,
   LastCharMotion,
+  FlashState,
+  FlashMatch,
 } from "./types.js";
 import {
   NORMAL_KEYS,
@@ -82,6 +92,7 @@ import {
   NEWLINE,
   ESC_DOWN,
 } from "./types.js";
+import { findDelimiterRange, TEXT_OBJECT_DELIMITERS } from "./text-objects.js";
 import {
   reverseCharMotion,
   findCharMotionTarget,
@@ -130,6 +141,7 @@ export class ModalEditor extends CustomEditor {
   private pendingGCount: string = "";
   private pendingReplace: boolean = false;
   private lastCharMotion: LastCharMotion | null = null;
+  private flashState: FlashState | null = null;
   private discardingBracketedPasteInNormalMode: boolean = false;
   private pendingEscWhileDiscardingBracketedPasteInNormalMode: boolean = false;
   private wordBoundaryCache = new WordBoundaryCache();
@@ -170,6 +182,7 @@ export class ModalEditor extends CustomEditor {
 
   override setText(text: string): void {
     this.clearRedoStack();
+    this.flashState = null;
     super.setText(text);
   }
 
@@ -403,6 +416,15 @@ export class ModalEditor extends CustomEditor {
 
   handleInput(data: string): void {
     this.ensureOnChangeHook();
+
+    if (this.flashState) {
+      if (this.isEscapeLikeInput(data)) {
+        this.cancelFlashMode(true);
+        return;
+      }
+      this.handleFlashInput(data);
+      return;
+    }
 
     if (this.mode !== "insert") {
       if (this.discardingBracketedPasteInNormalMode) {
@@ -640,41 +662,69 @@ export class ModalEditor extends CustomEditor {
   }
 
   private handlePendingTextObject(data: string): void {
-    if (data !== "w") {
-      this.pendingTextObject = null;
-      this.cancelPendingOperator(data);
-      return;
-    }
-
+    const kind = this.pendingTextObject!;
     const count = this.takeTotalCount(1);
-    const range = this.getWordObjectRange(this.pendingTextObject!, count);
+
+    if (data === "w") {
+      const range = this.getWordObjectRange(kind, count);
+      this.pendingTextObject = null;
+      if (!range || !this.pendingOperator) {
+        this.pendingOperator = null;
+        return;
+      }
+      this.applyTextObjectRange(range.startAbs, range.endAbs);
+      return;
+    }
+
+    if (TEXT_OBJECT_DELIMITERS.has(data)) {
+      // Delimiter text objects do not support counts; consume any count to
+      // prevent it from leaking into subsequent input.
+      const cursor = this.getCursor();
+      const range = findDelimiterRange(
+        this.getLines(),
+        cursor.line,
+        cursor.col,
+        data,
+        kind,
+      );
+      this.pendingTextObject = null;
+      if (!range || !this.pendingOperator) {
+        this.pendingOperator = null;
+        return;
+      }
+      this.applyTextObjectRange(range.startAbs, range.endAbs);
+      return;
+    }
+
     this.pendingTextObject = null;
-    if (!range || !this.pendingOperator) {
-      this.pendingOperator = null;
+    this.cancelPendingOperator(data);
+  }
+
+  private applyTextObjectRange(
+    startAbs: number,
+    endAbs: number,
+  ): void {
+    const operator = this.pendingOperator;
+    this.pendingOperator = null;
+
+    if (operator === "d") {
+      this.deleteRangeByAbsolute(startAbs, endAbs);
       return;
     }
 
-    const { startAbs, endAbs } = range;
-    if (this.pendingOperator === "d") {
+    if (operator === "c") {
       this.deleteRangeByAbsolute(startAbs, endAbs);
-      this.pendingOperator = null;
-      return;
-    }
-
-    if (this.pendingOperator === "c") {
-      this.deleteRangeByAbsolute(startAbs, endAbs);
-      this.pendingOperator = null;
+      // After deletion the cursor is already at startAbs, which is the inner
+      // start for `i` objects and the former opener position for `a` objects
+      // (now the inner start because the opener was removed).
       this.mode = "insert";
       return;
     }
 
-    if (this.pendingOperator === "y") {
+    if (operator === "y") {
       this.yankRangeByAbsolute(startAbs, endAbs);
-      this.pendingOperator = null;
       return;
     }
-
-    this.pendingOperator = null;
   }
 
   private handlePendingDelete(data: string): void {
@@ -907,7 +957,6 @@ export class ModalEditor extends CustomEditor {
       const supportsCountedStandaloneEdit = (
         data === "x"
         || data === "r"
-        || data === "s"
         || data === "S"
         || data === "D"
         || data === "C"
@@ -996,6 +1045,11 @@ export class ModalEditor extends CustomEditor {
 
     if (data === "r") {
       this.pendingReplace = true;
+      return;
+    }
+
+    if (data === "s") {
+      this.enterFlashMode();
       return;
     }
 
@@ -1147,10 +1201,6 @@ export class ModalEditor extends CustomEditor {
       case "S":
         this.takeTotalCount(1);
         this.cutCurrentLineContent();
-        this.mode = "insert";
-        break;
-      case "s":
-        this.cutCharUnderCursor();
         this.mode = "insert";
         break;
       case "x":
@@ -1819,6 +1869,17 @@ export class ModalEditor extends CustomEditor {
       return true;
     }
 
+    if (motion === "h" || motion === "l") {
+      const line = this.getLines()[cursor.line] ?? "";
+      const lineStartAbs = this.getAbsoluteIndex(cursor.line, 0);
+      const targetCol = col + (motion === "l" ? 0 : -1);
+      if (targetCol < 0 || targetCol >= line.length) return false;
+      const range = this.getGraphemeRangeAtCol(line, targetCol, 1);
+      if (!range) return false;
+      this.deleteRangeByAbsolute(lineStartAbs + range.start, lineStartAbs + range.end);
+      return true;
+    }
+
     const wordMotion = this.resolveWordMotion(motion);
     if (wordMotion) {
       const lineLocalRange = this.tryWordMotionLineLocalRange(
@@ -1951,6 +2012,16 @@ export class ModalEditor extends CustomEditor {
 
     if (motion === "^") {
       this.yankRange(col, findFirstNonWhitespaceColumn(line), false);
+      return true;
+    }
+
+    if (motion === "h" || motion === "l") {
+      const lineStartAbs = this.getAbsoluteIndex(cursor.line, 0);
+      const targetCol = col + (motion === "l" ? 0 : -1);
+      if (targetCol < 0 || targetCol >= line.length) return false;
+      const range = this.getGraphemeRangeAtCol(line, targetCol, 1);
+      if (!range) return false;
+      this.yankRangeByAbsolute(lineStartAbs + range.start, lineStartAbs + range.end);
       return true;
     }
 
@@ -2218,8 +2289,298 @@ export class ModalEditor extends CustomEditor {
     this.deleteRangeByAbsolute(lineStartAbs + start, lineStartAbs + end);
   }
 
+  private enterFlashMode(): void {
+    const cursor = this.getCursor();
+    this.flashState = {
+      pattern: "",
+      origin: { line: cursor.line, col: cursor.col },
+      matches: [],
+    };
+    const editor = this as unknown as { tui?: { requestRender?: () => void } };
+    editor.tui?.requestRender?.();
+  }
+
+  private cancelFlashMode(restoreOrigin: boolean): void {
+    if (!this.flashState) return;
+    if (restoreOrigin) {
+      this.moveCursorToAbsoluteIndex(
+        this.getAbsoluteIndex(this.flashState.origin.line, this.flashState.origin.col),
+      );
+    }
+    this.flashState = null;
+    const editor = this as unknown as { tui?: { requestRender?: () => void } };
+    editor.tui?.requestRender?.();
+  }
+
+  private handleFlashInput(data: string): void {
+    if (!this.flashState) return;
+
+    if (matchesKey(data, "return") || data === "\r" || data === "\n") {
+      const first = this.flashState.matches[0];
+      if (first) {
+        this.jumpToFlashMatch(first);
+      } else {
+        this.cancelFlashMode(true);
+      }
+      return;
+    }
+
+    if (matchesKey(data, "backspace") || data === "\x7f" || data === "\b") {
+      if (this.flashState.pattern.length === 0) {
+        this.cancelFlashMode(true);
+      } else {
+        this.flashState.pattern = this.flashState.pattern.slice(0, -1);
+        this.recomputeFlashMatches();
+      }
+      return;
+    }
+
+    if (!this.isPrintableInput(data)) {
+      return;
+    }
+
+    const match = this.flashState.matches.find((m) => m.label === data);
+    if (match) {
+      this.jumpToFlashMatch(match);
+      return;
+    }
+
+    this.flashState.pattern += data;
+    this.recomputeFlashMatches();
+  }
+
+  private jumpToFlashMatch(match: FlashMatch): void {
+    this.moveCursorToAbsoluteIndex(this.getAbsoluteIndex(match.line, match.col));
+    this.flashState = null;
+  }
+
+  private recomputeFlashMatches(): void {
+    if (!this.flashState) return;
+    const pattern = this.flashState.pattern;
+    if (pattern.length === 0) {
+      this.flashState.matches = [];
+    } else {
+      this.flashState.matches = this.assignFlashLabels(this.findFlashMatches(pattern));
+    }
+    const editor = this as unknown as { tui?: { requestRender?: () => void } };
+    editor.tui?.requestRender?.();
+  }
+
+  private readonly FLASH_LABELS = "asdfghjklqwertyuiopzxcvbnm";
+
+  private findFlashMatches(pattern: string): Array<{ line: number; col: number }> {
+    const lines = this.getLines();
+    const matches: Array<{ line: number; col: number }> = [];
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex] ?? "";
+      let col = 0;
+      while (col <= line.length - pattern.length) {
+        if (line.slice(col, col + pattern.length) === pattern) {
+          matches.push({ line: lineIndex, col });
+          col += Math.max(1, pattern.length);
+        } else {
+          col++;
+        }
+      }
+    }
+    return this.orderFlashMatches(matches);
+  }
+
+  private orderFlashMatches(
+    matches: Array<{ line: number; col: number }>,
+  ): Array<{ line: number; col: number }> {
+    if (!this.flashState) return matches;
+    const origin = this.flashState.origin;
+    const sameLineAfter = matches.filter(
+      (m) => m.line === origin.line && m.col > origin.col,
+    );
+    const linesBelow = matches.filter((m) => m.line > origin.line);
+    const sameLineBeforeOrAt = matches.filter(
+      (m) => m.line === origin.line && m.col <= origin.col,
+    );
+    const linesAbove = matches.filter((m) => m.line < origin.line);
+    return [...sameLineAfter, ...linesBelow, ...sameLineBeforeOrAt, ...linesAbove];
+  }
+
+  private assignFlashLabels(
+    matches: Array<{ line: number; col: number }>,
+  ): FlashMatch[] {
+    const labels = this.FLASH_LABELS;
+    return matches.slice(0, labels.length).map((m, i) => ({
+      ...m,
+      label: labels[i]!,
+    }));
+  }
+
+  private renderFlashOverlays(width: number, baseLines: string[]): string[] {
+    if (!this.flashState || this.flashState.matches.length === 0) return baseLines;
+
+    const paddingX = Math.min(
+      this.getPaddingX(),
+      Math.max(0, Math.floor((width - 1) / 2)),
+    );
+    const contentWidth = Math.max(1, width - paddingX * 2);
+    const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+    const leftPadding = " ".repeat(paddingX);
+
+    const layoutLines = this.buildFlashLayout(layoutWidth);
+    if (layoutLines.length === 0) return baseLines;
+
+    const cursor = this.getCursor();
+    const cursorLayoutIndex = layoutLines.findIndex(
+      (l) => l.logicalLine === cursor.line && l.startCol <= cursor.col && cursor.col < l.endCol,
+    );
+    if (cursorLayoutIndex === -1) return baseLines;
+
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } }).tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const maxScrollOffset = Math.max(0, layoutLines.length - maxVisibleLines);
+    let scrollOffset = 0;
+    if (cursorLayoutIndex >= maxVisibleLines) {
+      scrollOffset = Math.min(cursorLayoutIndex - maxVisibleLines + 1, maxScrollOffset);
+    }
+
+    const contentStart = 1;
+    const contentEnd = baseLines.length - 1;
+    const result = [...baseLines];
+
+    const LABEL_FG = "\x1b[30m"; // black
+    const LABEL_BG = "\x1b[43m"; // yellow bg
+    const RESET = "\x1b[0m";
+
+    for (const match of this.flashState.matches) {
+      const matchLayoutIndex = layoutLines.findIndex(
+        (l) => l.logicalLine === match.line && l.startCol <= match.col && match.col < l.endCol,
+      );
+      if (matchLayoutIndex === -1) continue;
+      if (matchLayoutIndex < scrollOffset || matchLayoutIndex >= scrollOffset + maxVisibleLines) continue;
+
+      const renderedContentIndex = contentStart + (matchLayoutIndex - scrollOffset);
+      if (renderedContentIndex >= contentEnd) continue;
+
+      const layoutLine = layoutLines[matchLayoutIndex]!;
+      const visibleCol = this.computeVisibleColumn(layoutLine.text, match.col - layoutLine.startCol);
+      if (visibleCol === null || visibleCol >= contentWidth) continue;
+
+      const renderedLine = result[renderedContentIndex]!;
+      if (!renderedLine.startsWith(leftPadding)) continue;
+
+      const contentStartIndex = leftPadding.length;
+      const contentEndIndex = renderedLine.length - (paddingX > 0 ? paddingX : 0);
+      const beforePadding = renderedLine.slice(0, contentStartIndex);
+      const afterPadding = renderedLine.slice(contentEndIndex);
+      let content = renderedLine.slice(contentStartIndex, contentEndIndex);
+
+      const split = this.splitRenderedContentAtVisibleColumn(content, visibleCol);
+      if (!split) continue;
+
+      const label = `${LABEL_FG}${LABEL_BG}${match.label}${RESET}`;
+      const newContent = split.before + label + split.after;
+      const newWidth = visibleWidth(content) - split.atWidth + visibleWidth(match.label);
+      const newPadding = Math.max(0, contentWidth - newWidth);
+      result[renderedContentIndex] = beforePadding + newContent + " ".repeat(newPadding) + afterPadding;
+    }
+
+    return result;
+  }
+
+  private buildFlashLayout(layoutWidth: number): Array<{
+    logicalLine: number;
+    startCol: number;
+    endCol: number;
+    text: string;
+  }> {
+    const layoutLines: Array<{
+      logicalLine: number;
+      startCol: number;
+      endCol: number;
+      text: string;
+    }> = [];
+    const lines = this.getLines();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+      if (visibleWidth(line) <= layoutWidth) {
+        layoutLines.push({ logicalLine: i, startCol: 0, endCol: line.length, text: line });
+      } else {
+        const chunks = wordWrapLine(line, layoutWidth);
+        for (const chunk of chunks) {
+          layoutLines.push({
+            logicalLine: i,
+            startCol: chunk.startIndex,
+            endCol: chunk.endIndex,
+            text: chunk.text,
+          });
+        }
+      }
+    }
+    return layoutLines;
+  }
+
+  private computeVisibleColumn(lineText: string, colOffset: number): number | null {
+    if (colOffset < 0 || colOffset > lineText.length) return null;
+    if (colOffset === 0) return 0;
+    let width = 0;
+    let byte = 0;
+    const graphemes = getLineGraphemes(lineText);
+    for (const g of graphemes) {
+      if (byte >= colOffset) break;
+      width += visibleWidth(lineText.slice(g.start, g.end));
+      byte = g.end;
+    }
+    return width;
+  }
+
+  private splitRenderedContentAtVisibleColumn(
+    content: string,
+    targetCol: number,
+  ): { before: string; at: string; after: string; atWidth: number } | null {
+    let col = 0;
+    let i = 0;
+    while (i < content.length && col < targetCol) {
+      if (content[i] === "\x1b") {
+        const end = this.findAnsiSequenceEnd(content, i);
+        if (end === null) break;
+        i = end;
+        continue;
+      }
+      const graphemes = getLineGraphemes(content.slice(i));
+      const g = graphemes[0];
+      if (!g) break;
+      const seg = content.slice(i, i + g.end);
+      const w = visibleWidth(seg);
+      if (col + w > targetCol) break;
+      col += w;
+      i += seg.length;
+    }
+
+    if (i >= content.length) {
+      return { before: content, at: "", after: "", atWidth: 0 };
+    }
+
+    const graphemes = getLineGraphemes(content.slice(i));
+    const g = graphemes[0];
+    if (!g) return { before: content, at: "", after: "", atWidth: 0 };
+    const seg = content.slice(i, i + g.end);
+    return {
+      before: content.slice(0, i),
+      at: seg,
+      after: content.slice(i + seg.length),
+      atWidth: visibleWidth(seg),
+    };
+  }
+
+  private findAnsiSequenceEnd(s: string, start: number): number | null {
+    if (s[start] !== "\x1b") return null;
+    let i = start + 1;
+    if (i >= s.length || s[i] !== "[") return null;
+    i++;
+    while (i < s.length && /[0-9;]/.test(s[i]!)) i++;
+    if (i >= s.length) return null;
+    return i + 1;
+  }
+
   render(width: number): string[] {
-    const lines = super.render(width);
+    const lines = this.renderFlashOverlays(width, super.render(width));
     if (lines.length === 0) return lines;
 
     const rawLabel = this.getModeLabel();
@@ -2256,6 +2617,10 @@ export class ModalEditor extends CustomEditor {
   }
 
   private getModeLabel(): string {
+    if (this.flashState) {
+      return `[FLASH /${this.flashState.pattern}] `;
+    }
+
     if (this.mode === "insert") return "[INSERT] ";
 
     const prefixCount = this.prefixCount;

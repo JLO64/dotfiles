@@ -12,6 +12,26 @@ export interface LastCharMotion {
   char: string;
 }
 
+export interface FlashMatch {
+  line: number;
+  col: number;
+  label: string;
+}
+
+export interface FlashState {
+  pattern: string;
+  origin: { line: number; col: number };
+  matches: FlashMatch[];
+}
+
+export type TextObjectDelimiter =
+  | "(" | ")"
+  | "{" | "}"
+  | "[" | "]"
+  | "<" | ">"
+  | '"'
+  | "'";
+
 // Normal mode key mappings: key -> escape sequence (or null for mode switch)
 export const NORMAL_KEYS: Record<string, string | null> = {
   h: "\x1b[D", // left
@@ -24,7 +44,6 @@ export const NORMAL_KEYS: Record<string, string | null> = {
   D: null, // delete to end of line (custom clipboard handling)
   C: null, // change to end of line (delete to end + insert mode)
   S: null, // substitute line (delete line content + insert mode)
-  s: null, // substitute char (delete char + insert mode)
   i: null, // insert mode
   a: null, // append (insert + right)
   A: null, // append at end of line
