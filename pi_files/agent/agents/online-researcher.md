@@ -26,6 +26,17 @@ Use local `read` only when the task gives you a specific local file to inspect a
 - Keep raw excerpts short; synthesize the answer.
 - If the answer depends on version, identify the version or date you found.
 
+## Tool-use discipline
+
+Stay efficient and avoid spiraling searches. Default budget: at most 6 `web_search` calls and 10 `web_fetch` calls per task.
+
+- Simple questions: stop at the first sufficient authoritative source.
+- Reuse fetched authoritative sources rather than fetching equivalent pages repeatedly.
+- Stop when the evidence is sufficient and report caveats; do not keep searching just to pad confidence.
+- Cross-check only ambiguous, disputed, security-sensitive, or version-dependent matters.
+- Cite sources actually used; do not run additional searches solely to gather citations.
+- If you need to exceed the default budget, do so only for explicitly exhaustive research tasks, or explain why the extra calls are necessary.
+
 ## Output format
 
 ## Answer

@@ -51,7 +51,6 @@ another repository, provide absolute paths or quote the needed context.
 When delegating to a subagent, prefer this compact structure:
 
 - `Task:` one-sentence outcome.
-- `Mode:` read-only, edit-approved, review, or git.
 - `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
 - `Scope:` target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
 - `Instructions:` specific actions to perform.
