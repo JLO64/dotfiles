@@ -2,53 +2,47 @@
 
 ## Branding
 
-The company name is **Cyberknight** — not "CyberKnight". Always use lowercase "k" in the middle.
+Always spell the company name **Cyberknight**, with a lowercase “k.”
 
 ## Shell Search Tools
 
-Use `fd` instead of `find` and `rg` instead of `grep` for file and text search.
+Use `fd` instead of `find` and `rg` instead of `grep`.
 
 ## Edit Policy
 
-Never edit, create, overwrite, or delete any file without first asking for the user's explicit permission. You must present the proposed change and wait for verbal confirmation before executing any file modification, creation, or deletion. This includes all file write operations, even for temporary or scratch files.
+Before writing, editing, creating, or deleting any file—including temporary files—present the proposed change and obtain the user's explicit permission.
 
-For delegated subagents, explicit permission may be conveyed by the parent agent in the task text. If the delegated task clearly states that the user explicitly approved edits, or the user directly requested implementation/editing in the current session, the subagent should proceed without asking for another confirmation. If permission is not clearly conveyed, stop and ask for clarification.
+Subagents may edit without reconfirming when their task states that the user approved edits or directly requested implementation in the current session. Otherwise, ask for clarification.
 
 ## Commit Policy
 
-Never commit, create a pull request, or push changes to any repository without first asking for the user's explicit permission. Wait for verbal confirmation before executing any git commit, PR creation, or push command.
+Obtain explicit permission before committing, creating a pull request, or pushing.
 
-By default, if the user asks to commit changes and there are uncommitted working tree changes, treat that request as explicit permission to stage and commit all current changes (full-repo clean-on-success, meaning the repo should be clean after the commit) without asking for an additional confirmation.
+A commit request authorizes staging and committing all current changes unless explicitly scoped. A push request likewise authorizes staging, committing, and pushing all current changes. Successful unscoped operations should leave the repository clean.
 
-If the user explicitly scopes the request to specific paths, hunks, deletions, or renames, only stage and commit those requested items. This scoped rule takes precedence over the default commit and push behaviors. Unrelated working-tree changes may remain unstaged. In a scoped commit, verify that every requested path, hunk, deletion, and rename is included, and report any requested items that could not be staged.
-
-If the user asks to push changes and there are uncommitted working tree changes, treat that request as explicit permission to stage, commit, and push those changes without asking for an additional confirmation, unless the request is explicitly scoped, in which case the scoped rule above applies.
+For requests scoped to paths, hunks, deletions, or renames, include only those items; unrelated changes may remain unstaged. Verify all requested items were staged and report any that were not.
 
 ## Code Block Language Identifiers
 
-When displaying code in markdown code blocks, always include the explicit language identifier on the opening fence (e.g., ` ```python `, ` ```bash `, ` ```json `, ` ```yaml `). Never use a bare ` ``` ` without a language identifier, as this breaks syntax highlighting and frustrates users who rely on the language tag for context.
-
-When suggesting code changes (additions, removals, or modifications), use a `diff` code block with `-` and `+` line prefixes to clearly indicate what is being removed and added. This renders with color-coded diffs in the terminal, making proposed changes immediately scannable.
-
-**Diff formatting rules:** The `-` and `+` markers must start at column 0 (the beginning of the line), followed by a space, then the line content. Unchanged context lines must be prefixed with a leading space so they are treated as context. Do not indent the `-` or `+` markers — indented markers will not trigger diff syntax highlighting.
+Always specify a language on fenced code blocks; never use a bare fence. Show proposed code changes in a `diff` block. Begin removal and addition lines at column 0 with `- ` and `+ `; prefix context lines with one space.
 
 ## Subagents
 
-Use the `subagent` tool for delegated work that is better handled in an isolated context.
+Delegate work that benefits from isolated context.
+
+### Task Decomposition
+
+Give each call one coherent, independently verifiable outcome. Split substantial work with distinct acceptance criteria, independent validation, unrelated failure modes, or heavy context. Keep tightly coupled or atomic work together, and avoid excessive fragmentation.
+
+Parallelize independent read-only tasks. Run dependent or overlapping edits sequentially, with focused acceptance criteria and validation before the next substantial change.
 
 ### Subagent Context
 
-Subagents run with isolated context. They do not automatically inherit prior
-conversation, files the parent has read, previous agent findings, or user
-approval details unless those are included in the task prompt.
+Subagents do not inherit conversation, findings, files read, or approvals. Include all required context and approval details in their prompts.
 
-Always set `cwd` to the repository the subagent should inspect or modify.
-Relative paths in the task resolve from that `cwd`. If a task needs files from
-another repository, provide absolute paths or quote the needed context.
+Always set `cwd` to the target repository. Use absolute paths or include relevant content for files outside it.
 
 ### Preferred Subagent Prompt Format
-
-When delegating to a subagent, prefer this compact structure:
 
 - `Task:` one-sentence outcome.
 - `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
@@ -58,17 +52,15 @@ When delegating to a subagent, prefer this compact structure:
 
 Available subagents:
 
-- `online-researcher` — Use for all web searches, documentation lookups, changelog checks, standards references, and external fact verification.
-- `local-researcher` — Use for read-only local codebase or filesystem exploration, including finding files, symbols, implementation details, config, and architecture.
-- `code-editor` — Use for delegated implementation tasks that should edit code or project files in an isolated context.
-- `reviewer` — Read-only code review specialist for reviewing uncommitted changes, specific files, or delegated implementations before commit.
-- `git-operator` — Use for all git operations, including status inspection, staging, committing, and pushing.
+- `online-researcher` — Web research, documentation, changelogs, standards, and external verification.
+- `local-researcher` — Read-only filesystem and codebase exploration.
+- `code-editor` — Approved implementation work.
+- `reviewer` — Read-only review of files or uncommitted changes.
+- `git-operator` — All Git operations.
 
 Rules:
 
-- All web searches and external documentation verification should be handled by `online-researcher`.
-- All git operations should be handled by `git-operator`.
+- Delegate all web research to `online-researcher` and all Git operations to `git-operator`.
 - Use `local-researcher` before editing when local context is unclear.
-- Use `code-editor` only when edits are explicitly desired.
-- Use `reviewer` after `code-editor` and before `git-operator` when changes are non-trivial.
-- When a subagent task references files outside its `cwd`, use absolute paths or include the relevant file contents/context in the prompt.
+- Use `code-editor` only for explicitly requested edits.
+- For non-trivial changes, use `reviewer` after `code-editor` and before `git-operator`.
