@@ -631,9 +631,6 @@ export default function (pi: ExtensionAPI) {
 				lines.push(formatLine("Subagents", r.subagents, theme));
 			}
 
-			// one trailing blank line
-			lines.push("");
-
 			const component = {
 				render: (width: number) => lines.map((l) => truncateToWidth(l, width)),
 				invalidate: () => {},

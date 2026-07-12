@@ -123,6 +123,12 @@ type EditorSnapshot = {
 
 type TransitionState = "none" | "undo" | "redo";
 
+type ModeColorizers = {
+  insert: (s: string) => string;
+  normal: (s: string) => string;
+  visual: (s: string) => string;
+};
+
 type ModalEditorInternals = {
   state?: { lines?: string[]; cursorLine?: number; cursorCol?: number };
   preferredVisualCol?: number | null;
@@ -154,8 +160,8 @@ export class ModalEditor extends CustomEditor {
   private readonly redoStack: EditorSnapshot[] = [];
   private currentTransition: TransitionState = "none";
   private onChangeHooked: boolean = false;
-  private readonly labelColorizers: { insert: (s: string) => string; normal: (s: string) => string } | null;
-  private readonly borderColorizers: { insert: (s: string) => string; normal: (s: string) => string } | null;
+  private readonly labelColorizers: ModeColorizers | null;
+  private readonly borderColorizers: ModeColorizers | null;
 
   // Unnamed register
   private unnamedRegister: string = "";
@@ -167,8 +173,8 @@ export class ModalEditor extends CustomEditor {
     tui: any,
     theme: any,
     kb: any,
-    labelColorizers?: { insert: (s: string) => string; normal: (s: string) => string } | null,
-    borderColorizers?: { insert: (s: string) => string; normal: (s: string) => string } | null,
+    labelColorizers?: ModeColorizers | null,
+    borderColorizers?: ModeColorizers | null,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
@@ -3101,98 +3107,139 @@ export class ModalEditor extends CustomEditor {
   }
 
   render(width: number): string[] {
-    const visualLines = this.renderVisualOverlays(width, super.render(width));
-    const lines = this.renderFlashOverlays(width, visualLines);
-    if (lines.length === 0) return lines;
+    if (width < 4) return super.render(width);
 
-    const rawLabel = this.getModeLabel();
-    const labelColorize = this.labelColorizers
-      ? (this.mode === "insert" ? this.labelColorizers.insert : this.labelColorizers.normal)
-      : null;
-    const borderColorize = this.borderColorizers
-      ? (this.mode === "insert" ? this.borderColorizers.insert : this.borderColorizers.normal)
-      : null;
-    const label = labelColorize ? labelColorize(rawLabel) : rawLabel;
-    const labelWidth = visibleWidth(rawLabel);
-    const last = lines.length - 1;
+    const innerWidth = width - 2;
+    const visualLines = this.renderVisualOverlays(
+      innerWidth,
+      super.render(innerWidth),
+    );
+    const editorLines = this.renderFlashOverlays(innerWidth, visualLines);
+    if (editorLines.length === 0) return editorLines;
 
-    // Strip ANSI codes and re-colorize with the mode colorizer
-    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-    const recolorBorder = (s: string) => {
-      const stripped = stripAnsi(s);
-      return borderColorize ? borderColorize(stripped) : stripped;
-    };
+    const paddingX = Math.min(
+      this.getPaddingX(),
+      Math.max(0, Math.floor((innerWidth - 1) / 2)),
+    );
+    const contentWidth = Math.max(1, innerWidth - paddingX * 2);
+    const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+    const layoutLineCount = this.buildFlashLayout(layoutWidth).length;
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } })
+      .tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const visibleEditorLines = Math.min(layoutLineCount, maxVisibleLines);
+    const bottomBorderIndex = Math.min(
+      1 + visibleEditorLines,
+      editorLines.length - 1,
+    );
 
-    // Top border: label at left + recolored dashes at right
-    if (width > labelWidth) {
-      const topRaw = stripAnsi(lines[0]!);
-      const dashes = truncateToWidth(topRaw, width - labelWidth, "");
-      lines[0] = label + recolorBorder(dashes);
-    } else {
-      lines[0] = truncateToWidth(label, width, "");
+    const contentLines = [
+      ...editorLines.slice(1, bottomBorderIndex),
+      ...editorLines.slice(bottomBorderIndex + 1),
+    ];
+    const borderColorize = this.getModeColorizer(this.borderColorizers);
+    const top = borderColorize(`╭${"─".repeat(innerWidth)}╮`);
+    const framedContent = contentLines.map((line) => {
+      const safeLine = visibleWidth(line) > innerWidth
+        ? truncateToWidth(line, innerWidth, "")
+        : line;
+      const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(safeLine)));
+      return `${borderColorize("│")}${safeLine}${padding}${borderColorize("│")}`;
+    });
+    const bottom = this.renderBottomBorder(width, borderColorize);
+
+    return [top, ...framedContent, bottom];
+  }
+
+  private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
+    if (!colorizers) return (s: string) => s;
+    if (this.mode === "insert") return colorizers.insert;
+    if (this.mode === "visual") return colorizers.visual;
+    return colorizers.normal;
+  }
+
+  private renderBottomBorder(
+    width: number,
+    borderColorize: (s: string) => string,
+  ): string {
+    const maxLabelWidth = Math.max(0, width - 6);
+    if (maxLabelWidth === 0) {
+      return borderColorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
     }
 
-    // Bottom border: just recolored
-    lines[last] = recolorBorder(lines[last]!);
+    const rawLabel = truncateToWidth(this.getModeLabel(), maxLabelWidth, "…");
+    const labelWidth = visibleWidth(rawLabel);
+    const connectorWidth = Math.max(1, width - labelWidth - 5);
+    const labelColorize = this.getModeColorizer(this.labelColorizers);
+    const boldLabel = labelColorize(`\x1b[1m${rawLabel}\x1b[22m`);
+    const bottom = `${borderColorize(`╰${"─".repeat(connectorWidth)} `)}${boldLabel}${borderColorize(" ─╯")}`;
 
-    return lines;
+    return visibleWidth(bottom) > width
+      ? truncateToWidth(bottom, width, "")
+      : bottom;
   }
 
   private getModeLabel(): string {
     if (this.flashState) {
-      return `[FLASH /${this.flashState.pattern}] `;
+      return `FLASH /${this.flashState.pattern}`;
     }
 
-    if (this.mode === "insert") return "[INSERT]";
+    if (this.mode === "insert") return "INSERT";
     if (this.mode === "visual") {
       const count = `${this.prefixCount}${this.operatorCount}`;
-      if (this.pendingTextObject) return `[VISUAL ${count}${this.pendingTextObject}_ ]`;
-      if (this.pendingMotion) return `[VISUAL ${count}${this.pendingMotion}_ ]`;
-      if (this.pendingG) return `[VISUAL ${count}g_ ]`;
-      if (count) return `[VISUAL ${count}_ ]`;
-      return "[VISUAL]";
+      if (this.pendingTextObject) return `VISUAL ${count}${this.pendingTextObject}_`;
+      if (this.pendingMotion) return `VISUAL ${count}${this.pendingMotion}_`;
+      if (this.pendingG) return `VISUAL ${count}g_`;
+      if (count) return `VISUAL ${count}_`;
+      return "VISUAL";
     }
 
     const prefixCount = this.prefixCount;
     const operatorCount = this.operatorCount;
 
     if (this.pendingReplace) {
-      return prefixCount ? `[NORMAL ${prefixCount}r_ ]` : "[NORMAL r_ ]";
+      return prefixCount ? `NORMAL ${prefixCount}r_` : "NORMAL r_";
     }
     if (this.pendingOperator && this.pendingMotion) {
-      return `[NORMAL ${prefixCount}${this.pendingOperator}${operatorCount}${this.pendingMotion}_ ]`;
+      return `NORMAL ${prefixCount}${this.pendingOperator}${operatorCount}${this.pendingMotion}_`;
     }
     if (this.pendingOperator) {
-      return `[NORMAL ${prefixCount}${this.pendingOperator}${operatorCount}_ ]`;
+      return `NORMAL ${prefixCount}${this.pendingOperator}${operatorCount}_`;
     }
-    if (this.pendingMotion) return `[NORMAL ${this.pendingMotion}_ ]`;
+    if (this.pendingMotion) return `NORMAL ${this.pendingMotion}_`;
     if (this.pendingG) {
       return this.pendingGCount
-        ? `[NORMAL g${this.pendingGCount}_ ]`
-        : "[NORMAL g_ ]";
+        ? `NORMAL g${this.pendingGCount}_`
+        : "NORMAL g_";
     }
 
     const count = `${prefixCount}${operatorCount}`;
-    if (count) return `[NORMAL ${count}_ ]`;
-    return "[NORMAL]";
+    if (count) return `NORMAL ${count}_`;
+    return "NORMAL";
   }
 }
 
-// #a7ced7 → rgb(167, 206, 215), #de9e99 → rgb(222, 158, 153)
-const INSERT_FG = "\x1b[38;2;167;206;215m";
-const NORMAL_FG = "\x1b[38;2;222;158;153m";
-const RESET = "\x1b[0m";
-
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
-    const labelColorizers = {
-      insert: (s: string) => `${INSERT_FG}\x1b[7m${s}\x1b[27m${RESET}`,
-      normal: (s: string) => `${NORMAL_FG}\x1b[7m${s}\x1b[27m${RESET}`,
-    };
-    const borderColorizers = {
-      insert: (s: string) => `${INSERT_FG}${s}${RESET}`,
-      normal: (s: string) => `${NORMAL_FG}${s}${RESET}`,
-    };
-    ctx.ui.setEditorComponent((tui, theme, kb) => new ModalEditor(tui, theme, kb, labelColorizers, borderColorizers));
+    const appTheme = ctx.ui.theme;
+    ctx.ui.setEditorComponent((tui, theme, kb) => {
+      const labelColorizers: ModeColorizers = {
+        insert: (s: string) => appTheme.fg("accent", s),
+        visual: (s: string) => appTheme.fg("dim", s),
+        normal: (s: string) => appTheme.fg("text", s),
+      };
+      const borderColorizers: ModeColorizers = {
+        insert: (s: string) => appTheme.fg("accent", s),
+        visual: (s: string) => appTheme.fg("dim", s),
+        normal: (s: string) => appTheme.fg("text", s),
+      };
+      return new ModalEditor(
+        tui,
+        theme,
+        kb,
+        labelColorizers,
+        borderColorizers,
+      );
+    });
   });
 }
