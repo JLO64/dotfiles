@@ -3143,14 +3143,14 @@ export class ModalEditor extends CustomEditor {
       return `[FLASH /${this.flashState.pattern}] `;
     }
 
-    if (this.mode === "insert") return "[INSERT] ";
+    if (this.mode === "insert") return "[INSERT]";
     if (this.mode === "visual") {
       const count = `${this.prefixCount}${this.operatorCount}`;
       if (this.pendingTextObject) return `[VISUAL ${count}${this.pendingTextObject}_ ]`;
       if (this.pendingMotion) return `[VISUAL ${count}${this.pendingMotion}_ ]`;
       if (this.pendingG) return `[VISUAL ${count}g_ ]`;
       if (count) return `[VISUAL ${count}_ ]`;
-      return "[VISUAL] ";
+      return "[VISUAL]";
     }
 
     const prefixCount = this.prefixCount;
@@ -3174,7 +3174,7 @@ export class ModalEditor extends CustomEditor {
 
     const count = `${prefixCount}${operatorCount}`;
     if (count) return `[NORMAL ${count}_ ]`;
-    return "[NORMAL] ";
+    return "[NORMAL]";
   }
 }
 
