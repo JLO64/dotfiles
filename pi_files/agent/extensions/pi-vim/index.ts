@@ -63,14 +63,18 @@ import {
   copyToClipboard,
   CustomEditor,
   type ExtensionAPI,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
   Key,
   matchesKey,
   truncateToWidth,
   visibleWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { wordWrapLine } from "./word-wrap.js";
+import {
+  extractShellQuery,
+  ZshHistoryService,
+} from "./zsh-history.js";
 
 import type {
   Mode,
@@ -115,6 +119,15 @@ const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const BRACKETED_PASTE_END_TAIL = BRACKETED_PASTE_END.slice(1);
 const MAX_COUNT = 9999;
+const SHELL_COLOR_START = "\x1b[38;2;156;207;216m";
+const FOREGROUND_RESET = "\x1b[39m";
+const GHOST_STYLE_START = "\x1b[2;38;5;245m";
+const STYLE_RESET = "\x1b[0m";
+const FAKE_CURSOR_AT_LINE_END = "\x1b[7m \x1b[0m";
+
+function shellColorize(text: string): string {
+  return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
+}
 
 type EditorSnapshot = {
   text: string;
@@ -162,6 +175,7 @@ export class ModalEditor extends CustomEditor {
   private onChangeHooked: boolean = false;
   private readonly labelColorizers: ModeColorizers | null;
   private readonly borderColorizers: ModeColorizers | null;
+  private readonly historyService: ZshHistoryService | null;
 
   // Unnamed register
   private unnamedRegister: string = "";
@@ -175,10 +189,13 @@ export class ModalEditor extends CustomEditor {
     kb: any,
     labelColorizers?: ModeColorizers | null,
     borderColorizers?: ModeColorizers | null,
+    historyService?: ZshHistoryService | null,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
     this.borderColorizers = borderColorizers ?? null;
+    this.historyService = historyService ?? null;
+    this.historyService?.setOnUpdate(() => this.requestRender());
   }
 
   // Test seams
@@ -191,6 +208,7 @@ export class ModalEditor extends CustomEditor {
   setRegister(text: string): void { this.unnamedRegister = text; }
   getMode(): Mode { return this.mode; }
   getText(): string { return this.getLines().join("\n"); }
+  getGhostSuffix(): string | null { return this.getEligibleGhostSuffix(); }
 
   override setText(text: string): void {
     this.clearRedoStack();
@@ -396,6 +414,29 @@ export class ModalEditor extends CustomEditor {
     return matchesKey(data, "escape") || matchesKey(data, "ctrl+[");
   }
 
+  private isShellInput(): boolean {
+    return this.getText().startsWith("!");
+  }
+
+  private getEligibleGhostSuffix(): string | null {
+    if (
+      !this.historyService
+      || this.mode !== "insert"
+      || this.isShowingAutocomplete()
+    ) {
+      return null;
+    }
+
+    const lines = this.getLines();
+    const cursor = this.getCursor();
+    if (lines.length !== 1 || cursor.line !== 0 || cursor.col !== lines[0]!.length) {
+      return null;
+    }
+
+    const shellQuery = extractShellQuery(lines[0]!);
+    return shellQuery ? this.historyService.findSuffix(shellQuery.query) : null;
+  }
+
   private stripBracketedPasteInNormalMode(data: string): { filtered: string | null; stripped: boolean } {
     let chunk = data;
     let stripped = false;
@@ -484,6 +525,15 @@ export class ModalEditor extends CustomEditor {
     }
 
     if (this.mode === "insert") {
+      if (matchesKey(data, "tab") && !this.isShowingAutocomplete()) {
+        const suffix = this.getEligibleGhostSuffix();
+        if (suffix) {
+          this.insertTextAtCursor(suffix);
+          this.requestRender();
+          return;
+        }
+      }
+
       // Shift+Alt+A: go to end of line (like Esc -> A but stay in insert)
       if (matchesKey(data, Key.shiftAlt("a")) || data === "\x1bA") {
         return super.handleInput(CTRL_E);
@@ -3106,6 +3156,37 @@ export class ModalEditor extends CustomEditor {
     return null;
   }
 
+  private renderGhostOverlay(width: number, baseLines: string[]): string[] {
+    const suffix = this.getEligibleGhostSuffix();
+    if (!suffix) return baseLines;
+
+    const lineIndex = baseLines.findIndex((line) =>
+      line.includes(FAKE_CURSOR_AT_LINE_END)
+    );
+    if (lineIndex === -1) return baseLines;
+
+    const line = baseLines[lineIndex]!;
+    const cursorIndex = line.indexOf(FAKE_CURSOR_AT_LINE_END);
+    const cursorEnd = cursorIndex + FAKE_CURSOR_AT_LINE_END.length;
+    const throughCursor = line.slice(0, cursorEnd);
+    const paddingX = Math.min(
+      this.getPaddingX(),
+      Math.max(0, Math.floor((width - 1) / 2)),
+    );
+    const availableWidth = Math.max(
+      0,
+      width - visibleWidth(throughCursor) - paddingX,
+    );
+    const visibleSuffix = truncateToWidth(suffix, availableWidth, "");
+    if (!visibleSuffix) return baseLines;
+
+    const withGhost = `${throughCursor}${GHOST_STYLE_START}${visibleSuffix}${STYLE_RESET}`;
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(withGhost)));
+    const result = [...baseLines];
+    result[lineIndex] = withGhost + padding;
+    return result;
+  }
+
   render(width: number): string[] {
     if (width < 4) return super.render(width);
 
@@ -3114,7 +3195,8 @@ export class ModalEditor extends CustomEditor {
       innerWidth,
       super.render(innerWidth),
     );
-    const editorLines = this.renderFlashOverlays(innerWidth, visualLines);
+    const flashLines = this.renderFlashOverlays(innerWidth, visualLines);
+    const editorLines = this.renderGhostOverlay(innerWidth, flashLines);
     if (editorLines.length === 0) return editorLines;
 
     const paddingX = Math.min(
@@ -3152,6 +3234,7 @@ export class ModalEditor extends CustomEditor {
   }
 
   private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
+    if (this.isShellInput()) return shellColorize;
     if (!colorizers) return (s: string) => s;
     if (this.mode === "insert") return colorizers.insert;
     if (this.mode === "visual") return colorizers.visual;
@@ -3184,6 +3267,7 @@ export class ModalEditor extends CustomEditor {
       return `FLASH /${this.flashState.pattern}`;
     }
 
+    if (this.isShellInput()) return "SHELL";
     if (this.mode === "insert") return "INSERT";
     if (this.mode === "visual") {
       const count = `${this.prefixCount}${this.operatorCount}`;
@@ -3220,7 +3304,10 @@ export class ModalEditor extends CustomEditor {
 }
 
 export default function (pi: ExtensionAPI) {
+  const historyService = new ZshHistoryService();
+
   pi.on("session_start", (_event, ctx) => {
+    historyService.start();
     const appTheme = ctx.ui.theme;
     ctx.ui.setEditorComponent((tui, theme, kb) => {
       const labelColorizers: ModeColorizers = {
@@ -3239,7 +3326,16 @@ export default function (pi: ExtensionAPI) {
         kb,
         labelColorizers,
         borderColorizers,
+        historyService,
       );
     });
+  });
+
+  pi.on("user_bash", (event) => {
+    historyService.addPiCommand(event.command);
+  });
+
+  pi.on("session_shutdown", () => {
+    historyService.dispose();
   });
 }
