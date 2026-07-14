@@ -145,6 +145,26 @@ function formatDurationShort(ms: number): string {
 	return `${minutes}m`;
 }
 
+function formatUsageWindowLabel(limitWindowSeconds: number | undefined): string {
+	if (
+		typeof limitWindowSeconds !== "number" ||
+		!Number.isFinite(limitWindowSeconds) ||
+		limitWindowSeconds <= 0
+	) {
+		return "usage window";
+	}
+
+	if (limitWindowSeconds === 7 * 24 * 60 * 60) return "weekly";
+
+	const days = limitWindowSeconds / (24 * 60 * 60);
+	if (Number.isInteger(days)) return `${days}-day`;
+
+	const hours = limitWindowSeconds / (60 * 60);
+	if (Number.isInteger(hours)) return `${hours}-hour`;
+
+	return "usage window";
+}
+
 function formatRemainingWindowDuration(
 	window:
 		| {
@@ -249,6 +269,7 @@ async function fetchChatGPTPlusUsage(): Promise<{
 		return {
 			used: Math.max(0, Math.min(100, Math.round(usedPercent))),
 			duration,
+			label: formatUsageWindowLabel(window?.limit_window_seconds),
 		};
 	};
 
@@ -495,8 +516,8 @@ function formatLine(
 }
 
 function formatChatGPTUsageLine(
-	primary: { used?: number; duration?: string } | null,
-	secondary: { used?: number; duration?: string } | null,
+	primary: { used?: number; duration?: string; label?: string } | null,
+	secondary: { used?: number; duration?: string; label?: string } | null,
 	// biome-ignore lint/suspicious/noExplicitAny: theme shape varies
 	theme: any,
 ): string | null {
@@ -506,12 +527,13 @@ function formatChatGPTUsageLine(
 	const dur = (s: string | undefined) => s ?? "—";
 	const dim = (s: string) => theme.fg("dim", s);
 
-	const primaryPart = primary
-		? `${used(primary.used)}${dim(" used with ")}${dur(primary.duration)}${dim(" remaining (5-hour)")}`
-		: null;
-	const secondaryPart = secondary
-		? `${used(secondary.used)}${dim(" used with ")}${dur(secondary.duration)}${dim(" remaining (weekly)")}`
-		: null;
+	const formatPart = (window: typeof primary) =>
+		window
+			? `${used(window.used)}${dim(" used with ")}${dur(window.duration)}${dim(` remaining (${window.label ?? "usage window"})`)}`
+			: null;
+
+	const primaryPart = formatPart(primary);
+	const secondaryPart = formatPart(secondary);
 
 	if (primaryPart && secondaryPart) return `${primaryPart}${dim(" / ")}${secondaryPart}`;
 	return primaryPart ?? secondaryPart;

@@ -14,5 +14,6 @@
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
     "enabled": false
-  }
+  },
+  "defaultProjectTrust": "always"
 }
