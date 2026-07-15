@@ -63,4 +63,4 @@ Rules:
 - Delegate all web research to `online-researcher` and all Git operations to `git-operator`.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
-- For non-trivial changes, use `reviewer` after `code-editor` and before `git-operator`.
+- Use `reviewer` only when the user explicitly approves its use for the current task.
