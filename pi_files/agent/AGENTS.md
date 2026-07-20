@@ -30,6 +30,8 @@ Always specify a language on fenced code blocks; never use a bare fence. Show pr
 
 Delegate work that benefits from isolated context.
 
+Do not delegate the creation or editing of project plans or internal documentation Markdown files; handle those changes directly as the main agent.
+
 ### Task Decomposition
 
 Give each call one coherent, independently verifiable outcome. Split substantial work with distinct acceptance criteria, independent validation, unrelated failure modes, or heavy context. Keep tightly coupled or atomic work together, and avoid excessive fragmentation.
