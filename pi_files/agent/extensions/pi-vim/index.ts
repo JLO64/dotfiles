@@ -65,6 +65,7 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
+  CURSOR_MARKER,
   Key,
   matchesKey,
   truncateToWidth,
@@ -124,6 +125,9 @@ const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
 const STYLE_RESET = "\x1b[0m";
 const FAKE_CURSOR_AT_LINE_END = "\x1b[7m \x1b[0m";
+const CURSOR_SHAPE_BAR = "\x1b[6 q";
+const CURSOR_SHAPE_BLOCK = "\x1b[2 q";
+const CURSOR_SHAPE_DEFAULT = "\x1b[0 q";
 
 function shellColorize(text: string): string {
   return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
@@ -176,6 +180,8 @@ export class ModalEditor extends CustomEditor {
   private readonly labelColorizers: ModeColorizers | null;
   private readonly borderColorizers: ModeColorizers | null;
   private readonly historyService: ZshHistoryService | null;
+  private hardwareCursorEnabled: boolean = false;
+  private cursorShapeSent: string | null = null;
 
   // Unnamed register
   private unnamedRegister: string = "";
@@ -996,6 +1002,44 @@ export class ModalEditor extends CustomEditor {
   private requestRender(): void {
     const editor = this as unknown as { tui?: { requestRender?: () => void } };
     editor.tui?.requestRender?.();
+  }
+
+  private enableHardwareCursor(): void {
+    if (this.hardwareCursorEnabled) return;
+    const tui = (this as unknown as { tui?: { setShowHardwareCursor?: (enabled: boolean) => void } }).tui;
+    if (typeof tui?.setShowHardwareCursor === "function") {
+      tui.setShowHardwareCursor(true);
+      this.hardwareCursorEnabled = true;
+    }
+  }
+
+  private syncCursorShape(): void {
+    this.enableHardwareCursor();
+    const tui = (this as unknown as { tui?: { terminal?: { write?: (data: string) => void } } }).tui;
+    if (typeof tui?.terminal?.write !== "function") return;
+    const desired = this.mode === "insert" ? CURSOR_SHAPE_BAR : CURSOR_SHAPE_BLOCK;
+    if (this.cursorShapeSent === desired) return;
+    tui.terminal.write(desired);
+    this.cursorShapeSent = desired;
+  }
+
+  private stripInsertFakeCursor(lines: string[]): string[] {
+    if (this.mode !== "insert") return lines;
+    const marker = CURSOR_MARKER;
+    const markerLen = marker.length;
+    const inverseStart = "\x1b[7m";
+    const inverseEnd = "\x1b[0m";
+    return lines.map((line) => {
+      const markerIndex = line.indexOf(marker);
+      if (markerIndex === -1) return line;
+      const afterMarker = line.slice(markerIndex + markerLen);
+      if (!afterMarker.startsWith(inverseStart)) return line;
+      const resetIndex = afterMarker.indexOf(inverseEnd, inverseStart.length);
+      if (resetIndex === -1) return line;
+      const char = afterMarker.slice(inverseStart.length, resetIndex);
+      const rest = afterMarker.slice(resetIndex + inverseEnd.length);
+      return line.slice(0, markerIndex + markerLen) + char + rest;
+    });
   }
 
   private moveVisualHead(action: () => void): void {
@@ -3196,7 +3240,9 @@ export class ModalEditor extends CustomEditor {
       super.render(innerWidth),
     );
     const flashLines = this.renderFlashOverlays(innerWidth, visualLines);
-    const editorLines = this.renderGhostOverlay(innerWidth, flashLines);
+    const editorLines = this.stripInsertFakeCursor(
+      this.renderGhostOverlay(innerWidth, flashLines),
+    );
     if (editorLines.length === 0) return editorLines;
 
     const paddingX = Math.min(
@@ -3230,6 +3276,7 @@ export class ModalEditor extends CustomEditor {
     });
     const bottom = this.renderBottomBorder(width, borderColorize);
 
+    this.syncCursorShape();
     return [top, ...framedContent, bottom];
   }
 
@@ -3305,11 +3352,13 @@ export class ModalEditor extends CustomEditor {
 
 export default function (pi: ExtensionAPI) {
   const historyService = new ZshHistoryService();
+  let activeTui: { terminal?: { write: (data: string) => void } } | null = null;
 
   pi.on("session_start", (_event, ctx) => {
     historyService.start();
     const appTheme = ctx.ui.theme;
     ctx.ui.setEditorComponent((tui, theme, kb) => {
+      activeTui = tui as { terminal?: { write: (data: string) => void } };
       const labelColorizers: ModeColorizers = {
         insert: (s: string) => appTheme.fg("accent", s),
         visual: (s: string) => appTheme.fg("dim", s),
@@ -3337,5 +3386,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", () => {
     historyService.dispose();
+    if (activeTui?.terminal?.write) {
+      activeTui.terminal.write(CURSOR_SHAPE_DEFAULT);
+    }
+    activeTui = null;
   });
 }
