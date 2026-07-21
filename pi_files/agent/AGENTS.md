@@ -7,11 +7,14 @@ Always spell the company name **Cyberknight**, with a lowercase “k.”
 ## pi-questions blocks
 
 When a final response is blocked on user input, include **at most one**
-standalone `pi-questions` fenced block at the **end** of the message. The block
-must use the exact numbered question/answer format below. Do not nest other
-fenced blocks inside it.
+standalone `pi-questions` fenced block at the **end** of the message, **only
+when you are blocked on three or more questions**. For one or two questions, ask
+them in normal prose instead of using a fenced block.
 
-Example:
+The block must use the exact numbered question/answer format below. Do not nest
+other fenced blocks inside it.
+
+Example (three or more questions):
 
 ````text
 Here are the questions I need answered:

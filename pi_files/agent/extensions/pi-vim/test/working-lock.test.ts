@@ -6,6 +6,8 @@ import { ModalEditor } from "../index.ts";
 const ACCENT = "\x1b[38;5;200m";
 const RESET = "\x1b[39m";
 const accentColorize = (s: string) => `${ACCENT}${s}${RESET}`;
+const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
+const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
 
 function makeEditor(): ModalEditor {
   const tui = {
@@ -23,9 +25,24 @@ function makeEditor(): ModalEditor {
     keybindings as any,
   );
   editor.setAccentColorizer(accentColorize);
-  editor.setWorkingLabels("Working…", "Press Esc to abort");
   editor.focused = true;
   return editor;
+}
+
+function countLeadingSpaces(row: string): number {
+  let count = 0;
+  for (const ch of row) {
+    if (ch === " ") count++;
+    else break;
+  }
+  return count;
+}
+
+function extractVisiblePill(row: string): string {
+  // Remove ANSI color codes and trailing spaces.
+  return row
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\s+$/g, "");
 }
 
 describe("input lock", () => {
@@ -83,51 +100,131 @@ describe("input lock", () => {
 });
 
 describe("working scanner rendering", () => {
-  test("renders a locked frame with scanner and working text", () => {
+  test("renders exactly two rows", () => {
+    const editor = makeEditor();
+    editor.lock();
+
+    const rendered = editor.render(50);
+    expect(rendered.length).toBe(2);
+    expect(visibleWidth(rendered[0]!)).toBe(50);
+    expect(rendered[1]).toBe(" ".repeat(50));
+  });
+
+  test("renders the exact accent-colored pill", () => {
+    const editor = makeEditor();
+    editor.lock();
+
+    const [row, blank] = editor.render(50);
+    expect(row).toContain(PILL_GLYPHS);
+    expect(row).toContain(ACCENT);
+    expect(row).toContain(RESET);
+    expect(visibleWidth(row)).toBe(50);
+    expect(blank).toBe(" ".repeat(50));
+  });
+
+  test("locked view has no borders, labels, or text", () => {
     const editor = makeEditor();
     editor.lock();
 
     const rendered = editor.render(50).join("\n");
-    expect(rendered).toContain("█");
-    expect(rendered).toContain(ACCENT);
-    expect(rendered).toContain("Working…");
-    expect(rendered).toContain("Press Esc to abort");
-    expect(rendered).toContain("WORKING");
+    expect(rendered).not.toContain("Working");
+    expect(rendered).not.toContain("abort");
+    expect(rendered).not.toContain("WORKING");
+    expect(rendered).not.toContain("│");
+    expect(rendered).not.toContain("╭");
+    expect(rendered).not.toContain("╰");
+    expect(rendered).not.toContain("─");
   });
 
-  test("uses the configured accent colorizer for scanner and borders", () => {
+  test("adapts the pill to terminal width", () => {
     const editor = makeEditor();
     editor.lock();
 
-    const rendered = editor.render(50).join("\n");
-    const accentMatches = rendered.match(new RegExp(ACCENT.replace(/\[/g, "\\["), "g"));
-    expect(accentMatches?.length).toBeGreaterThanOrEqual(4);
-  });
-
-  test("adapts the scanner bar to terminal width", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    for (const width of [4, 5, 8, 30, 80]) {
+    for (const width of [0, 1, 2, 3, 4, 5, 8, 30, 80]) {
       const rendered = editor.render(width);
-      for (const line of rendered) {
-        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-      }
+      expect(rendered.length).toBe(2);
+      expect(visibleWidth(rendered[0]!)).toBeLessThanOrEqual(width);
+      expect(visibleWidth(rendered[1]!)).toBeLessThanOrEqual(width);
     }
   });
 
-  test("scanner position changes with elapsed time", () => {
+  test("narrow widths render the longest safe pill prefix", () => {
+    const editor = makeEditor();
+    editor.lock();
+
+    for (let width = 0; width < PILL_WIDTH; width++) {
+      const [row, blank] = editor.render(width);
+      const visible = extractVisiblePill(row);
+      let expectedPrefix = "";
+      let expectedWidth = 0;
+      for (const char of PILL_GLYPHS) {
+        const w = visibleWidth(char);
+        if (expectedWidth + w > width) break;
+        expectedPrefix += char;
+        expectedWidth += w;
+      }
+      expect(visible).toBe(expectedPrefix);
+      expect(visibleWidth(row)).toBe(width);
+      expect(blank).toBe(width > 0 ? " ".repeat(width) : "");
+    }
+  });
+
+  test("pill position is leftmost at the start of the traversal", () => {
+    const editor = makeEditor();
+    let now = 0;
+    editor.setNowFn(() => now);
+    editor.lock();
+
+    const row = editor.render(40)[0]!;
+    expect(countLeadingSpaces(row)).toBe(0);
+  });
+
+  test("blank second row has no text or ANSI across widths", () => {
+    const editor = makeEditor();
+    editor.lock();
+
+    for (const width of [0, 1, 5, 10, 50, 80]) {
+      const [, blank] = editor.render(width);
+      expect(blank.replace(/\s/g, "")).toBe("");
+      expect(blank).toBe(width > 0 ? " ".repeat(width) : "");
+    }
+  });
+
+  test("pill travels one-way left-to-right over 2400ms", () => {
+    const editor = makeEditor();
+    let now = 0;
+    editor.setNowFn(() => now);
+    editor.lock();
+
+    const width = 40;
+    const maxPos = width - PILL_WIDTH;
+    const positions = [0, 600, 1200, 1800, 2000].map((t) => {
+      now = t;
+      const row = editor.render(width)[0]!;
+      return countLeadingSpaces(row);
+    });
+
+    expect(positions[0]).toBe(0);
+    expect(positions[1]).toBe(Math.round(0.25 * maxPos));
+    expect(positions[2]).toBe(Math.round(0.5 * maxPos));
+    expect(positions[3]).toBe(Math.round(0.75 * maxPos));
+    expect(positions[4]).toBe(Math.round((2000 / 2400) * maxPos));
+    expect(new Set(positions).size).toBe(positions.length);
+  });
+
+  test("pill restarts at the left after 2400ms", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
     editor.lock();
 
     now = 0;
-    const first = editor.render(40).join("\n");
-    now = 300;
-    const second = editor.render(40).join("\n");
+    const first = editor.render(40)[0]!;
+    now = 2400;
+    const wrapped = editor.render(40)[0]!;
 
-    expect(first).not.toBe(second);
+    expect(countLeadingSpaces(first)).toBe(0);
+    expect(countLeadingSpaces(wrapped)).toBe(0);
   });
 });
 

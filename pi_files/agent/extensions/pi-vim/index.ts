@@ -76,7 +76,7 @@ import {
   extractShellQuery,
   ZshHistoryService,
 } from "./zsh-history.js";
-import { extractPiQuestions } from "./pi-questions.js";
+import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
 
 import type {
   Mode,
@@ -129,6 +129,9 @@ const FAKE_CURSOR_AT_LINE_END = "\x1b[7m \x1b[0m";
 const CURSOR_SHAPE_BAR = "\x1b[6 q";
 const CURSOR_SHAPE_BLOCK = "\x1b[2 q";
 const CURSOR_SHAPE_DEFAULT = "\x1b[0 q";
+const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
+const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
+const PILL_TRAVERSAL_MS = 2400;
 
 function shellColorize(text: string): string {
   return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
@@ -189,8 +192,6 @@ export class ModalEditor extends CustomEditor {
   private lockTimer: ReturnType<typeof setInterval> | null = null;
   private lockStartTime: number = 0;
   private accentColorizer: (s: string) => string = (s) => s;
-  private workingText: string = "Working…";
-  private abortText: string = "Press Esc to abort";
   private nowFn: () => number = Date.now;
 
   // Unnamed register
@@ -227,10 +228,6 @@ export class ModalEditor extends CustomEditor {
   getGhostSuffix(): string | null { return this.getEligibleGhostSuffix(); }
   setNowFn(fn: () => number): void { this.nowFn = fn; }
   setAccentColorizer(fn: (s: string) => string): void { this.accentColorizer = fn; }
-  setWorkingLabels(working: string, abort: string): void {
-    this.workingText = working;
-    this.abortText = abort;
-  }
   isLocked(): boolean { return this.locked; }
   lock(): void {
     this.stopLockTimer();
@@ -3290,8 +3287,8 @@ export class ModalEditor extends CustomEditor {
   }
 
   render(width: number): string[] {
-    if (width < 4) return super.render(width);
     if (this.locked) return this.renderLocked(width);
+    if (width < 4) return super.render(width);
 
     const innerWidth = width - 2;
     const visualLines = this.renderVisualOverlays(
@@ -3409,105 +3406,107 @@ export class ModalEditor extends CustomEditor {
   }
 
   private renderLocked(width: number): string[] {
-    if (width < 4) return super.render(width);
-
-    const innerWidth = width - 2;
-    const colorize = this.accentColorizer;
-    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } })
-      .tui?.terminal?.rows ?? 24;
-    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
-    const contentHeight = Math.max(3, Math.min(maxVisibleLines, 6));
-    const scannerRow = Math.max(0, Math.floor((contentHeight - 2) / 2) - 1);
-
-    const top = colorize(`╭${"─".repeat(innerWidth)}╮`);
-    const bottom = this.renderLockedBottomBorder(width, colorize);
-
-    const lines: string[] = [];
-    for (let i = 0; i < contentHeight; i++) {
-      if (i === scannerRow) {
-        lines.push(this.renderScannerLine(innerWidth, colorize));
-      } else if (i === scannerRow + 1) {
-        lines.push(this.renderLockedTextLine(innerWidth, this.workingText, colorize));
-      } else if (i === scannerRow + 2) {
-        lines.push(this.renderLockedTextLine(innerWidth, this.abortText, colorize));
-      } else {
-        lines.push(`${colorize("│")}${" ".repeat(innerWidth)}${colorize("│")}`);
-      }
-    }
-
-    return [top, ...lines, bottom];
-  }
-
-  private renderScannerLine(
-    innerWidth: number,
-    colorize: (s: string) => string,
-  ): string {
-    const barLength = Math.min(
-      innerWidth,
-      Math.max(3, Math.min(12, Math.floor(innerWidth * 0.25))),
-    );
-    const maxPos = Math.max(0, innerWidth - barLength);
     const elapsed = this.nowFn() - this.lockStartTime;
-    const period = 1200;
-    const t = maxPos === 0 ? 0 : (elapsed % period) / period;
-    const goingRight = t < 0.5;
-    const fraction = goingRight ? t * 2 : (t - 0.5) * 2;
-    const pos = Math.round(fraction * maxPos);
-    const leftPad = " ".repeat(pos);
-    const bar = "█".repeat(barLength);
-    const coloredBar = colorize(bar);
-    const rightWidth = innerWidth - pos - barLength;
-    const rightPad = " ".repeat(Math.max(0, rightWidth));
+    const progress = (elapsed % PILL_TRAVERSAL_MS) / PILL_TRAVERSAL_MS;
+    const blankRow = width > 0 ? " ".repeat(width) : "";
 
-    return `${colorize("│")}${leftPad}${coloredBar}${rightPad}${colorize("│")}`;
-  }
-
-  private renderLockedTextLine(
-    innerWidth: number,
-    text: string,
-    colorize: (s: string) => string,
-  ): string {
-    const raw = truncateToWidth(text, innerWidth, "");
-    const textWidth = visibleWidth(raw);
-    const leftPad = " ".repeat(Math.max(0, Math.floor((innerWidth - textWidth) / 2)));
-    const rightPad = " ".repeat(Math.max(0, innerWidth - textWidth - leftPad.length));
-
-    return `${colorize("│")}${leftPad}${colorize(raw)}${rightPad}${colorize("│")}`;
-  }
-
-  private renderLockedBottomBorder(
-    width: number,
-    colorize: (s: string) => string,
-  ): string {
-    const maxLabelWidth = Math.max(0, width - 6);
-    if (maxLabelWidth === 0) {
-      return colorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
+    if (width <= 0) {
+      return ["", blankRow];
     }
 
-    const rawLabel = truncateToWidth("WORKING", maxLabelWidth, "…");
-    const labelWidth = visibleWidth(rawLabel);
-    const connectorWidth = Math.max(1, width - labelWidth - 5);
-    const boldLabel = colorize(`\x1b[1m${rawLabel}\x1b[22m`);
-    const bottom = `${colorize(`╰${"─".repeat(connectorWidth)} `)}${boldLabel}${colorize(" ─╯")}`;
+    if (width < PILL_WIDTH) {
+      // Render the longest safe prefix of the pill that fits the row.
+      let pill = "";
+      let pillWidth = 0;
+      for (const char of PILL_GLYPHS) {
+        const charWidth = visibleWidth(char);
+        if (pillWidth + charWidth > width) break;
+        pill += char;
+        pillWidth += charWidth;
+      }
+      const coloredPill = this.accentColorizer(pill);
+      const rightPad = " ".repeat(Math.max(0, width - pillWidth));
+      return [coloredPill + rightPad, blankRow];
+    }
 
-    return visibleWidth(bottom) > width
-      ? truncateToWidth(bottom, width, "")
-      : bottom;
+    const maxPos = Math.max(0, width - PILL_WIDTH);
+    const pos = Math.round(progress * maxPos);
+    const leftPad = " ".repeat(pos);
+    const coloredPill = this.accentColorizer(PILL_GLYPHS);
+    const rightWidth = Math.max(0, width - pos - PILL_WIDTH);
+    const rightPad = " ".repeat(rightWidth);
+
+    return [leftPad + coloredPill + rightPad, blankRow];
   }
 }
 
-function extractAssistantText(message: { role?: string; content?: unknown }): string {
-  if (!message || message.role !== "assistant") return "";
+interface AssistantTextMatch {
+  index: number;
+  text: string;
+  body: string;
+  stripped: string;
+}
+
+function findAssistantTextBlockWithQuestions(
+  message: { role?: string; content?: unknown },
+): AssistantTextMatch | null {
+  if (!message || message.role !== "assistant") return null;
   const content = message.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block: any) => {
-      if (typeof block === "string") return block;
-      if (block && typeof block.text === "string") return block.text;
-      return "";
-    })
-    .join("");
+
+  if (typeof content === "string") {
+    const text = content;
+    const body = extractPiQuestions(text);
+    if (!body) return null;
+    const stripped = stripPiQuestionsBlock(text);
+    if (stripped === null) return null;
+    return { index: -1, text, body, stripped };
+  }
+
+  if (!Array.isArray(content)) return null;
+
+  for (let i = 0; i < content.length; i++) {
+    const block = content[i];
+    let text: string | null = null;
+    if (typeof block === "string") {
+      text = block;
+    } else if (
+      block
+      && typeof block === "object"
+      && (block as any).type === "text"
+      && typeof (block as any).text === "string"
+    ) {
+      text = (block as any).text;
+    }
+
+    if (text === null) continue;
+
+    const body = extractPiQuestions(text);
+    if (!body) continue;
+
+    const stripped = stripPiQuestionsBlock(text);
+    if (stripped === null) continue;
+
+    return { index: i, text, body, stripped };
+  }
+
+  return null;
+}
+
+function replaceAssistantTextBlock(
+  message: { role?: string; stopReason?: string; content?: unknown },
+  match: AssistantTextMatch,
+): any {
+  const newMessage = { ...message };
+  if (typeof message.content === "string") {
+    newMessage.content = match.stripped;
+  } else if (Array.isArray(message.content)) {
+    newMessage.content = (message.content as any[]).map((block: any, i: number) => {
+      if (i !== match.index) return block;
+      if (typeof block === "string") return match.stripped;
+      return { ...block, text: match.stripped };
+    });
+  }
+  return newMessage;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -3517,6 +3516,10 @@ export default function (pi: ExtensionAPI) {
   let pendingQuestions: string | null = null;
 
   pi.on("session_start", (_event, ctx) => {
+    // Hide Pi's built-in working loader row so the custom scanner is the
+    // only visible working indicator; do this before any setup that could
+    // trigger a render flicker on agent start.
+    ctx.ui.setWorkingVisible(false);
     historyService.start();
     const appTheme = ctx.ui.theme;
     ctx.ui.setEditorComponent((tui, theme, kb) => {
@@ -3540,7 +3543,6 @@ export default function (pi: ExtensionAPI) {
         historyService,
       );
       editor.setAccentColorizer((s: string) => appTheme.fg("accent", s));
-      editor.setWorkingLabels("Working…", "Press Esc to abort");
       activeEditor = editor;
       return editor;
     });
@@ -3552,15 +3554,19 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("message_end", (event) => {
-    const message = event.message as { role?: string; stopReason?: string; content?: unknown };
+    const message = event.message as {
+      role?: string;
+      stopReason?: string;
+      content?: unknown;
+    };
     if (message.role !== "assistant") return;
     if (message.stopReason !== "stop") return;
 
-    const text = extractAssistantText(message);
-    const body = extractPiQuestions(text);
-    if (body) {
-      pendingQuestions = body;
-    }
+    const match = findAssistantTextBlockWithQuestions(message);
+    if (!match) return;
+
+    pendingQuestions = match.body;
+    return { message: replaceAssistantTextBlock(message, match) };
   });
 
   pi.on("agent_settled", () => {
