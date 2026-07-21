@@ -30,3 +30,40 @@ setopt INC_APPEND_HISTORY
 ```
 
 This extension does not change `.zshrc` automatically.
+
+## Working scanner and input lock
+
+While the agent is running, the editor is locked and shows a bouncing
+Knight-Rider-style scanner bar, a concise working message, and an abort hint.
+The scanner and border use the same accent color as pi-vim insert mode.
+
+- All typing, Vim commands, submission, steering, and follow-up input is
+  swallowed while the scanner is visible.
+- Press **Esc** to abort the running agent, consistent with Pi's existing
+  interrupt behavior.
+- When the agent fully settles, the lock is released. If the final assistant
+  message contains a valid `pi-questions` fenced block, its body is prefilled
+  into the editor unconditionally.
+
+## Prefilling questions with `pi-questions`
+
+When the final assistant message is blocked on user input, include exactly one
+`pi-questions` fenced block at the **end** of the message. The block must use
+this exact numbered Q/A shape:
+
+````text
+```pi-questions
+1.
+ Q: What is the target repository?
+ A:
+2.
+ Q: Which files are in scope?
+ A:
+3.
+ Q: What is the acceptance criteria?
+ A:
+```
+````
+
+pi-vim will extract the block body and place it into the editor after the run
+settles, ready for the user to edit and submit.

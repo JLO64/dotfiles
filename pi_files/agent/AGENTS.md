@@ -4,6 +4,34 @@
 
 Always spell the company name **Cyberknight**, with a lowercase “k.”
 
+## pi-questions blocks
+
+When a final response is blocked on user input, include **at most one**
+standalone `pi-questions` fenced block at the **end** of the message. The block
+must use the exact numbered question/answer format below. Do not nest other
+fenced blocks inside it.
+
+Example:
+
+````text
+Here are the questions I need answered:
+
+```pi-questions
+1.
+ Q: What is the target repository?
+ A:
+2.
+ Q: Which files are in scope?
+ A:
+3.
+ Q: What is the acceptance criteria?
+ A:
+```
+````
+
+The pi-vim extension will extract the block body and prefill the editor after the
+agent run fully settles.
+
 ## Shell Search Tools
 
 Use `fd` instead of `find` and `rg` instead of `grep`.

@@ -76,6 +76,7 @@ import {
   extractShellQuery,
   ZshHistoryService,
 } from "./zsh-history.js";
+import { extractPiQuestions } from "./pi-questions.js";
 
 import type {
   Mode,
@@ -183,6 +184,15 @@ export class ModalEditor extends CustomEditor {
   private hardwareCursorEnabled: boolean = false;
   private cursorShapeSent: string | null = null;
 
+  // Working / input-lock state
+  private locked: boolean = false;
+  private lockTimer: ReturnType<typeof setInterval> | null = null;
+  private lockStartTime: number = 0;
+  private accentColorizer: (s: string) => string = (s) => s;
+  private workingText: string = "Working…";
+  private abortText: string = "Press Esc to abort";
+  private nowFn: () => number = Date.now;
+
   // Unnamed register
   private unnamedRegister: string = "";
   private clipboardFn: (text: string) => Promise<void> = async (text: string) => {
@@ -215,6 +225,29 @@ export class ModalEditor extends CustomEditor {
   getMode(): Mode { return this.mode; }
   getText(): string { return this.getLines().join("\n"); }
   getGhostSuffix(): string | null { return this.getEligibleGhostSuffix(); }
+  setNowFn(fn: () => number): void { this.nowFn = fn; }
+  setAccentColorizer(fn: (s: string) => string): void { this.accentColorizer = fn; }
+  setWorkingLabels(working: string, abort: string): void {
+    this.workingText = working;
+    this.abortText = abort;
+  }
+  isLocked(): boolean { return this.locked; }
+  lock(): void {
+    this.stopLockTimer();
+    this.locked = true;
+    this.lockStartTime = this.nowFn();
+    this.startLockTimer();
+    this.requestRender();
+  }
+  unlock(prefillText?: string | null): void {
+    this.stopLockTimer();
+    this.locked = false;
+    if (prefillText && prefillText.length > 0) {
+      this.setText(prefillText);
+    } else {
+      this.requestRender();
+    }
+  }
 
   override setText(text: string): void {
     this.clearRedoStack();
@@ -480,6 +513,15 @@ export class ModalEditor extends CustomEditor {
 
   handleInput(data: string): void {
     this.ensureOnChangeHook();
+
+    if (this.locked) {
+      // While the agent is working, only the abort path is allowed through.
+      const keybindings = (this as unknown as { keybindings?: { matches: (data: string, key: string) => boolean } }).keybindings;
+      if (this.isEscapeLikeInput(data) || keybindings?.matches(data, "app.interrupt")) {
+        super.handleInput(data);
+      }
+      return;
+    }
 
     if (this.flashState) {
       if (this.isEscapeLikeInput(data)) {
@@ -1002,6 +1044,22 @@ export class ModalEditor extends CustomEditor {
   private requestRender(): void {
     const editor = this as unknown as { tui?: { requestRender?: () => void } };
     editor.tui?.requestRender?.();
+  }
+
+  private startLockTimer(): void {
+    this.stopLockTimer();
+    const timer = setInterval(() => this.requestRender(), 100);
+    if (typeof (timer as any).unref === "function") {
+      (timer as any).unref();
+    }
+    this.lockTimer = timer;
+  }
+
+  private stopLockTimer(): void {
+    if (this.lockTimer) {
+      clearInterval(this.lockTimer);
+      this.lockTimer = null;
+    }
   }
 
   private enableHardwareCursor(): void {
@@ -3233,6 +3291,7 @@ export class ModalEditor extends CustomEditor {
 
   render(width: number): string[] {
     if (width < 4) return super.render(width);
+    if (this.locked) return this.renderLocked(width);
 
     const innerWidth = width - 2;
     const visualLines = this.renderVisualOverlays(
@@ -3348,11 +3407,114 @@ export class ModalEditor extends CustomEditor {
     if (count) return `NORMAL ${count}_`;
     return "NORMAL";
   }
+
+  private renderLocked(width: number): string[] {
+    if (width < 4) return super.render(width);
+
+    const innerWidth = width - 2;
+    const colorize = this.accentColorizer;
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } })
+      .tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const contentHeight = Math.max(3, Math.min(maxVisibleLines, 6));
+    const scannerRow = Math.max(0, Math.floor((contentHeight - 2) / 2) - 1);
+
+    const top = colorize(`╭${"─".repeat(innerWidth)}╮`);
+    const bottom = this.renderLockedBottomBorder(width, colorize);
+
+    const lines: string[] = [];
+    for (let i = 0; i < contentHeight; i++) {
+      if (i === scannerRow) {
+        lines.push(this.renderScannerLine(innerWidth, colorize));
+      } else if (i === scannerRow + 1) {
+        lines.push(this.renderLockedTextLine(innerWidth, this.workingText, colorize));
+      } else if (i === scannerRow + 2) {
+        lines.push(this.renderLockedTextLine(innerWidth, this.abortText, colorize));
+      } else {
+        lines.push(`${colorize("│")}${" ".repeat(innerWidth)}${colorize("│")}`);
+      }
+    }
+
+    return [top, ...lines, bottom];
+  }
+
+  private renderScannerLine(
+    innerWidth: number,
+    colorize: (s: string) => string,
+  ): string {
+    const barLength = Math.min(
+      innerWidth,
+      Math.max(3, Math.min(12, Math.floor(innerWidth * 0.25))),
+    );
+    const maxPos = Math.max(0, innerWidth - barLength);
+    const elapsed = this.nowFn() - this.lockStartTime;
+    const period = 1200;
+    const t = maxPos === 0 ? 0 : (elapsed % period) / period;
+    const goingRight = t < 0.5;
+    const fraction = goingRight ? t * 2 : (t - 0.5) * 2;
+    const pos = Math.round(fraction * maxPos);
+    const leftPad = " ".repeat(pos);
+    const bar = "█".repeat(barLength);
+    const coloredBar = colorize(bar);
+    const rightWidth = innerWidth - pos - barLength;
+    const rightPad = " ".repeat(Math.max(0, rightWidth));
+
+    return `${colorize("│")}${leftPad}${coloredBar}${rightPad}${colorize("│")}`;
+  }
+
+  private renderLockedTextLine(
+    innerWidth: number,
+    text: string,
+    colorize: (s: string) => string,
+  ): string {
+    const raw = truncateToWidth(text, innerWidth, "");
+    const textWidth = visibleWidth(raw);
+    const leftPad = " ".repeat(Math.max(0, Math.floor((innerWidth - textWidth) / 2)));
+    const rightPad = " ".repeat(Math.max(0, innerWidth - textWidth - leftPad.length));
+
+    return `${colorize("│")}${leftPad}${colorize(raw)}${rightPad}${colorize("│")}`;
+  }
+
+  private renderLockedBottomBorder(
+    width: number,
+    colorize: (s: string) => string,
+  ): string {
+    const maxLabelWidth = Math.max(0, width - 6);
+    if (maxLabelWidth === 0) {
+      return colorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
+    }
+
+    const rawLabel = truncateToWidth("WORKING", maxLabelWidth, "…");
+    const labelWidth = visibleWidth(rawLabel);
+    const connectorWidth = Math.max(1, width - labelWidth - 5);
+    const boldLabel = colorize(`\x1b[1m${rawLabel}\x1b[22m`);
+    const bottom = `${colorize(`╰${"─".repeat(connectorWidth)} `)}${boldLabel}${colorize(" ─╯")}`;
+
+    return visibleWidth(bottom) > width
+      ? truncateToWidth(bottom, width, "")
+      : bottom;
+  }
+}
+
+function extractAssistantText(message: { role?: string; content?: unknown }): string {
+  if (!message || message.role !== "assistant") return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block: any) => {
+      if (typeof block === "string") return block;
+      if (block && typeof block.text === "string") return block.text;
+      return "";
+    })
+    .join("");
 }
 
 export default function (pi: ExtensionAPI) {
   const historyService = new ZshHistoryService();
   let activeTui: { terminal?: { write: (data: string) => void } } | null = null;
+  let activeEditor: ModalEditor | null = null;
+  let pendingQuestions: string | null = null;
 
   pi.on("session_start", (_event, ctx) => {
     historyService.start();
@@ -3369,7 +3531,7 @@ export default function (pi: ExtensionAPI) {
         visual: (s: string) => appTheme.fg("dim", s),
         normal: (s: string) => appTheme.fg("text", s),
       };
-      return new ModalEditor(
+      const editor = new ModalEditor(
         tui,
         theme,
         kb,
@@ -3377,7 +3539,33 @@ export default function (pi: ExtensionAPI) {
         borderColorizers,
         historyService,
       );
+      editor.setAccentColorizer((s: string) => appTheme.fg("accent", s));
+      editor.setWorkingLabels("Working…", "Press Esc to abort");
+      activeEditor = editor;
+      return editor;
     });
+  });
+
+  pi.on("agent_start", () => {
+    pendingQuestions = null;
+    activeEditor?.lock();
+  });
+
+  pi.on("message_end", (event) => {
+    const message = event.message as { role?: string; stopReason?: string; content?: unknown };
+    if (message.role !== "assistant") return;
+    if (message.stopReason !== "stop") return;
+
+    const text = extractAssistantText(message);
+    const body = extractPiQuestions(text);
+    if (body) {
+      pendingQuestions = body;
+    }
+  });
+
+  pi.on("agent_settled", () => {
+    activeEditor?.unlock(pendingQuestions);
+    pendingQuestions = null;
   });
 
   pi.on("user_bash", (event) => {
@@ -3386,6 +3574,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", () => {
     historyService.dispose();
+    activeEditor?.unlock();
+    activeEditor = null;
+    pendingQuestions = null;
     if (activeTui?.terminal?.write) {
       activeTui.terminal.write(CURSOR_SHAPE_DEFAULT);
     }

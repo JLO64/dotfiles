@@ -3,7 +3,7 @@ import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { ModalEditor } from "../index.ts";
 import { ZshHistoryService } from "../zsh-history.ts";
 
-const SHELL_RGB = "\x1b[38;2;156;207;216m";
+const SHELL_RGB = "\x1b[38;2;62;143;176m";
 const GHOST_STYLE = "\x1b[2;38;5;245m";
 
 const services: ZshHistoryService[] = [];
