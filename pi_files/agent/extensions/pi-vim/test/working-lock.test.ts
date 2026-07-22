@@ -9,7 +9,9 @@ const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
 const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
 const EXPECTED_FRAME_INTERVAL_MS = 1000 / 30;
 
-function makeEditor(): ModalEditor {
+function makeEditor(
+  keybindings?: { matches: (data: string, key: string) => boolean },
+): ModalEditor {
   const tui = {
     terminal: { rows: 40 },
     requestRender: () => {},
@@ -18,11 +20,11 @@ function makeEditor(): ModalEditor {
     borderColor: (text: string) => text,
     selectList: {},
   };
-  const keybindings = { matches: () => false };
+  const kb = keybindings ?? { matches: () => false };
   const editor = new ModalEditor(
     tui as any,
     theme as any,
-    keybindings as any,
+    kb as any,
   );
   editor.focused = true;
   return editor;
@@ -86,6 +88,71 @@ describe("input lock", () => {
     }
 
     expect(passed).toBe("\x1b");
+  });
+
+  test("lets app.tools.expand through to super while locked", () => {
+    const keybindings = {
+      matches: (data: string, key: string) =>
+        key === "app.tools.expand" && data === "expand-trigger",
+    };
+    const editor = makeEditor(keybindings);
+    editor.setText("before lock");
+    editor.lock();
+
+    const original = CustomEditor.prototype.handleInput;
+    let passed: string | null = null;
+    CustomEditor.prototype.handleInput = function (data: string): void {
+      passed = data;
+    };
+
+    try {
+      editor.handleInput("expand-trigger");
+    } finally {
+      CustomEditor.prototype.handleInput = original;
+    }
+
+    expect(passed).toBe("expand-trigger");
+    expect(editor.getText()).toBe("before lock");
+  });
+
+  test("swallows arbitrary input while locked even with app.tools.expand binding", () => {
+    const keybindings = {
+      matches: (data: string, key: string) =>
+        key === "app.tools.expand" && data === "expand-trigger",
+    };
+    const editor = makeEditor(keybindings);
+    editor.setText("before lock");
+    editor.lock();
+
+    editor.handleInput("a");
+    editor.handleInput("i");
+    editor.handleInput("\n");
+    editor.handleInput("other-data");
+
+    expect(editor.getText()).toBe("before lock");
+  });
+
+  test("swallows another app action while locked", () => {
+    const keybindings = {
+      matches: (data: string, key: string) =>
+        key === "app.other.action" && data === "other-action",
+    };
+    const editor = makeEditor(keybindings);
+    editor.lock();
+
+    const original = CustomEditor.prototype.handleInput;
+    let passed: string | null = null;
+    CustomEditor.prototype.handleInput = function (data: string): void {
+      passed = data;
+    };
+
+    try {
+      editor.handleInput("other-action");
+    } finally {
+      CustomEditor.prototype.handleInput = original;
+    }
+
+    expect(passed).toBeNull();
   });
 
   test("unlocks and prefills the editor", () => {

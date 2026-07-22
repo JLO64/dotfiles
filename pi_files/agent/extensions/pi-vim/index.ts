@@ -515,9 +515,12 @@ export class ModalEditor extends CustomEditor {
     this.ensureOnChangeHook();
 
     if (this.locked) {
-      // While the agent is working, only the abort path is allowed through.
+      // While the agent is working, only the abort path and tool-output
+      // expansion are allowed through.
       const keybindings = (this as unknown as { keybindings?: { matches: (data: string, key: string) => boolean } }).keybindings;
-      if (this.isEscapeLikeInput(data) || keybindings?.matches(data, "app.interrupt")) {
+      const isInterrupt = this.isEscapeLikeInput(data) || keybindings?.matches(data, "app.interrupt");
+      const isExpand = keybindings?.matches(data, "app.tools.expand");
+      if (isInterrupt || isExpand) {
         super.handleInput(data);
       }
       return;

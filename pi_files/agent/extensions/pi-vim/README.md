@@ -45,6 +45,9 @@ active.
 
 - All typing, Vim commands, submission, steering, and follow-up input is
   swallowed while the streaming frame is visible.
+- The `app.tools.expand` action (default **Ctrl+O**) is forwarded to allow
+  expanding tool output while the agent is working; the actual key is resolved
+  through the active keybindings, not hard-coded.
 - Press **Esc** to abort the running agent, consistent with Pi's existing
   interrupt behavior.
 - When the agent fully settles, the lock is released and the underlying editor
