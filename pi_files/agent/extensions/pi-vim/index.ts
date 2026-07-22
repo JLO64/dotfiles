@@ -122,6 +122,7 @@ const BRACKETED_PASTE_END = "\x1b[201~";
 const BRACKETED_PASTE_END_TAIL = BRACKETED_PASTE_END.slice(1);
 const MAX_COUNT = 9999;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
+const STREAMING_COLOR_START = "\x1b[38;2;235;111;146m";
 const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
 const STYLE_RESET = "\x1b[0m";
@@ -192,7 +193,8 @@ export class ModalEditor extends CustomEditor {
   private locked: boolean = false;
   private lockTimer: ReturnType<typeof setInterval> | null = null;
   private lockStartTime: number = 0;
-  private accentColorizer: (s: string) => string = (s) => s;
+  private accentColorizer: (s: string) => string = (s) =>
+    `${STREAMING_COLOR_START}${s}${FOREGROUND_RESET}`;
   private nowFn: () => number = Date.now;
 
   // Unnamed register
@@ -3409,35 +3411,79 @@ export class ModalEditor extends CustomEditor {
   private renderLocked(width: number): string[] {
     const elapsed = this.nowFn() - this.lockStartTime;
     const progress = (elapsed % PILL_TRAVERSAL_MS) / PILL_TRAVERSAL_MS;
-    const blankRow = width > 0 ? " ".repeat(width) : "";
+    const colorize = this.accentColorizer;
 
     if (width <= 0) {
-      return ["", blankRow];
+      return ["", "", ""];
     }
 
-    if (width < PILL_WIDTH) {
-      // Render the longest safe prefix of the pill that fits the row.
+    if (width === 1) {
+      return [colorize("╭"), colorize("│"), colorize("╰")];
+    }
+
+    const innerWidth = width - 2;
+    const top = colorize(`╭${"─".repeat(innerWidth)}╮`);
+    const content = this.renderLockedContentRow(innerWidth, progress, colorize);
+    const bottom = this.renderLockedBottomBorder(width, colorize);
+
+    return [top, content, bottom];
+  }
+
+  private renderLockedContentRow(
+    innerWidth: number,
+    progress: number,
+    colorize: (s: string) => string,
+  ): string {
+    const leftBorder = colorize("│");
+    const rightBorder = colorize("│");
+
+    if (innerWidth <= 0) {
+      return leftBorder + rightBorder;
+    }
+
+    if (innerWidth < PILL_WIDTH) {
       let pill = "";
       let pillWidth = 0;
       for (const char of PILL_GLYPHS) {
         const charWidth = visibleWidth(char);
-        if (pillWidth + charWidth > width) break;
+        if (pillWidth + charWidth > innerWidth) break;
         pill += char;
         pillWidth += charWidth;
       }
-      const coloredPill = this.accentColorizer(pill);
-      const rightPad = " ".repeat(Math.max(0, width - pillWidth));
-      return [coloredPill + rightPad, blankRow];
+      const coloredPill = colorize(pill);
+      const rightPad = " ".repeat(Math.max(0, innerWidth - pillWidth));
+      return leftBorder + coloredPill + rightPad + rightBorder;
     }
 
-    const maxPos = Math.max(0, width - PILL_WIDTH);
+    const maxPos = Math.max(0, innerWidth - PILL_WIDTH);
     const pos = Math.round(progress * maxPos);
     const leftPad = " ".repeat(pos);
-    const coloredPill = this.accentColorizer(PILL_GLYPHS);
-    const rightWidth = Math.max(0, width - pos - PILL_WIDTH);
+    const coloredPill = colorize(PILL_GLYPHS);
+    const rightWidth = Math.max(0, innerWidth - pos - PILL_WIDTH);
     const rightPad = " ".repeat(rightWidth);
 
-    return [leftPad + coloredPill + rightPad, blankRow];
+    return leftBorder + leftPad + coloredPill + rightPad + rightBorder;
+  }
+
+  private renderLockedBottomBorder(
+    width: number,
+    colorize: (s: string) => string,
+  ): string {
+    const label = "STREAMING";
+    const maxLabelWidth = Math.max(0, width - 6);
+    if (maxLabelWidth === 0) {
+      return colorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
+    }
+
+    const rawLabel = truncateToWidth(label, maxLabelWidth, "…");
+    const labelWidth = visibleWidth(rawLabel);
+    const connectorWidth = Math.max(1, width - labelWidth - 5);
+    const boldLabel = `\x1b[1m${rawLabel}\x1b[22m`;
+    const bottom = `${colorize(`╰${"─".repeat(connectorWidth)} `)}${colorize(boldLabel)}${colorize(" ─╯")}`;
+
+    return visibleWidth(bottom) > width
+      ? truncateToWidth(bottom, width, "")
+      : bottom;
   }
 }
 
@@ -3543,7 +3589,6 @@ export default function (pi: ExtensionAPI) {
         borderColorizers,
         historyService,
       );
-      editor.setAccentColorizer((s: string) => appTheme.fg("accent", s));
       activeEditor = editor;
       return editor;
     });

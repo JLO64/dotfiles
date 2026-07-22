@@ -33,20 +33,24 @@ This extension does not change `.zshrc` automatically.
 
 ## Working scanner and input lock
 
-While the agent is running, the editor is locked and replaced by an accent-colored
-pill scanner `████████`. The pill travels one-way left-to-right across the first
-row over 2.4 seconds, then restarts at the left. The second row is blank. There is no text box,
-border, working label, or abort hint visible. Because the scanner replaces Pi's
-built-in working indicator, pi-vim hides the built-in `⠇ Working...` row while the
-extension is active.
+While the agent is running, the editor is locked and displayed as a framed
+streaming state. The locked output is three rows: a top border, a single inner
+content row containing the accent-colored pill scanner `████████`, and a bottom
+border. The frame and pill are tinted in the streaming truecolor `#eb6f92`
+(RGB 235,111,146), and the bottom-right border label reads `STREAMING`. The pill
+travels one-way left-to-right across the inner content width over 2.4 seconds,
+then restarts at the left. Because the scanner replaces Pi's built-in working
+indicator, pi-vim hides the built-in `⠇ Working...` row while the extension is
+active.
 
 - All typing, Vim commands, submission, steering, and follow-up input is
-  swallowed while the scanner is visible.
+  swallowed while the streaming frame is visible.
 - Press **Esc** to abort the running agent, consistent with Pi's existing
   interrupt behavior.
-- When the agent fully settles, the lock is released. If the final assistant
-  message contains a valid `pi-questions` fenced block with three or more
-  questions, its body is prefilled into the editor.
+- When the agent fully settles, the lock is released and the underlying editor
+  state is preserved. If the final assistant message contains a valid
+  `pi-questions` fenced block with three or more questions, its body is prefilled
+  into the editor.
 
 ## Prefilling questions with `pi-questions`
 
