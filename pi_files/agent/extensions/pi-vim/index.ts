@@ -132,6 +132,7 @@ const CURSOR_SHAPE_DEFAULT = "\x1b[0 q";
 const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
 const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
 const PILL_TRAVERSAL_MS = 2400;
+const PILL_FRAME_INTERVAL_MS = 1000 / 30;
 
 function shellColorize(text: string): string {
   return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
@@ -1045,7 +1046,7 @@ export class ModalEditor extends CustomEditor {
 
   private startLockTimer(): void {
     this.stopLockTimer();
-    const timer = setInterval(() => this.requestRender(), 100);
+    const timer = setInterval(() => this.requestRender(), PILL_FRAME_INTERVAL_MS);
     if (typeof (timer as any).unref === "function") {
       (timer as any).unref();
     }

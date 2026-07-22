@@ -8,6 +8,7 @@ const RESET = "\x1b[39m";
 const accentColorize = (s: string) => `${ACCENT}${s}${RESET}`;
 const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
 const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
+const EXPECTED_FRAME_INTERVAL_MS = 1000 / 30;
 
 function makeEditor(): ModalEditor {
   const tui = {
@@ -232,13 +233,19 @@ describe("timer lifecycle", () => {
   let originalSetInterval: typeof global.setInterval;
   let originalClearInterval: typeof global.clearInterval;
   let timers: Set<ReturnType<typeof setInterval>>;
+  let lastDelay: number | null = null;
+  let lastCallback: (() => void) | null = null;
 
   beforeEach(() => {
     timers = new Set();
+    lastDelay = null;
+    lastCallback = null;
     originalSetInterval = global.setInterval;
     originalClearInterval = global.clearInterval;
 
     global.setInterval = ((...args: any[]) => {
+      lastCallback = args[0] as (() => void) | null;
+      lastDelay = args[1] as number | null;
       const id = Symbol("timer") as unknown as ReturnType<typeof setInterval>;
       timers.add(id);
       return id;
@@ -258,6 +265,8 @@ describe("timer lifecycle", () => {
     const editor = makeEditor();
     editor.lock();
     expect(timers.size).toBe(1);
+    expect(lastDelay).toBe(EXPECTED_FRAME_INTERVAL_MS);
+    expect(typeof lastCallback).toBe("function");
 
     editor.unlock();
     expect(timers.size).toBe(0);
