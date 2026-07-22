@@ -36,8 +36,8 @@ This extension does not change `.zshrc` automatically.
 While the agent is running, the editor is locked and displayed as a framed
 streaming state. The locked output is three rows: a top border, a single inner
 content row containing the accent-colored pill scanner `████████`, and a bottom
-border. The frame and pill are tinted in the streaming truecolor `#eb6f92`
-(RGB 235,111,146), and the bottom-right border label reads `STREAMING`. The pill
+border. The frame and pill are tinted in the streaming truecolor `#ea9a97`
+(RGB 234,154,151), and the bottom-right border label reads `STREAMING`. The pill
 travels one-way left-to-right across the inner content width over 2.4 seconds,
 then restarts at the left. Because the scanner replaces Pi's built-in working
 indicator, pi-vim hides the built-in `⠇ Working...` row while the extension is

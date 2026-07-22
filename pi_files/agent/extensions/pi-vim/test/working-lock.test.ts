@@ -3,7 +3,7 @@ import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ModalEditor } from "../index.ts";
 
-const STREAMING_RGB = "\x1b[38;2;235;111;146m";
+const STREAMING_RGB = "\x1b[38;2;234;154;151m";
 const RESET = "\x1b[39m";
 const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
 const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
@@ -204,14 +204,14 @@ describe("streaming frame rendering", () => {
     expect(bottom).toContain("STREAMING");
   });
 
-  test("uses the exact #eb6f92 truecolor by default", () => {
+  test("uses the exact #ea9a97 truecolor by default", () => {
     const editor = makeEditor();
     editor.lock();
 
     const rendered = editor.render(50).join("\n");
     expect(rendered).toContain(STREAMING_RGB);
     // The sequence must be a 24-bit truecolor foreground.
-    expect(STREAMING_RGB).toBe("\x1b[38;2;235;111;146m");
+    expect(STREAMING_RGB).toBe("\x1b[38;2;234;154;151m");
   });
 
   test("shows STREAMING in the bottom-right border label", () => {
