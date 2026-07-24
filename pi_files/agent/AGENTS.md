@@ -103,5 +103,4 @@ Rules:
 - Delegate all web research to `online-researcher` and all Git operations to `git-operator`.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
-- Before invoking `code-editor-pro`, explain why it is warranted and ask the user for permission. Invoke it only after permission is received.
-- Use `reviewer` only when the user explicitly approves its use for the current task.
+- Before invoking `code-editor-pro` or `reviewer`, ask the user for permission.
