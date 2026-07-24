@@ -69,6 +69,8 @@ Give each call one coherent, independently verifiable outcome. Split substantial
 
 Parallelize independent read-only tasks. Run dependent or overlapping edits sequentially, with focused acceptance criteria and validation before the next substantial change.
 
+For code-editing tasks, give the subagent a narrow, complete assignment. Identify the desired outcome, relevant context, in-scope and out-of-scope files or behavior, constraints that must be preserved, and targeted validation to perform.
+
 ### Subagent Context
 
 Subagents do not inherit conversation, findings, files read, or approvals. Include all required context and approval details in their prompts.
@@ -77,17 +79,22 @@ Always set `cwd` to the target repository. Use absolute paths or include relevan
 
 ### Preferred Subagent Prompt Format
 
-- `Task:` one-sentence outcome.
+Include the `Documentation:` line only when the task has relevant reference documents. Documentation paths must be absolute, and subagents must treat those files as read-only.
+
+- `Task:` short-one-paragraph outcome.
 - `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
 - `Scope:` target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
+- `Documentation:` optional absolute file paths to read-only reference documents.
+- `Constraints:` behavior, interfaces, conventions, or requirements that must be preserved.
 - `Instructions:` specific actions to perform.
-- `Return:` expected output format, including blockers, risks, and file references.
+- `Return:` expected output format, including validation results, blockers, risks, and file references.
 
 Available subagents:
 
 - `online-researcher` — Web research, documentation, changelogs, standards, and external verification.
 - `local-researcher` — Read-only filesystem and codebase exploration.
 - `code-editor` — Approved implementation work.
+- `code-editor-pro` — Premium implementation work for complex tasks; requires prior user permission.
 - `reviewer` — Read-only review of files or uncommitted changes.
 - `git-operator` — All Git operations.
 
@@ -96,4 +103,5 @@ Rules:
 - Delegate all web research to `online-researcher` and all Git operations to `git-operator`.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
+- Before invoking `code-editor-pro`, explain why it is warranted and ask the user for permission. Invoke it only after permission is received.
 - Use `reviewer` only when the user explicitly approves its use for the current task.
