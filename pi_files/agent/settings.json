@@ -2,9 +2,9 @@
   "lastChangelogVersion": "0.80.6",
   "quietStartup": true,
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-sol",
+  "defaultModel": "gpt-5.6-luna",
   "enabledModels": [
-    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-luna",
     "openai-codex/gpt-5.6-terra",
     "lm-studio/google/gemma-4-26b-a4b-qat"
   ],
