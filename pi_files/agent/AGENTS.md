@@ -94,12 +94,13 @@ Available subagents:
 - `online-researcher` — Web research, documentation, changelogs, standards, and external verification.
 - `local-researcher` — Read-only filesystem and codebase exploration.
 - `code-editor` — Approved implementation work.
+- `code-editor-pro` — Premium implementation work for complex tasks; requires prior user permission.
 - `reviewer` — Read-only review of files or uncommitted changes.
-- `git-operator` — All Git operations.
+- `git-operator` — Git CLI (`git`) operations only; it must not run GitHub CLI (`gh`) commands.
 
 Rules:
 
-- Delegate all web research to `online-researcher` and all Git operations to `git-operator`.
+- Delegate all Git CLI (`git`) operations to `git-operator`. Do not delegate GitHub CLI (`gh`) commands to it.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
-- Before invoking `reviewer`, ask the user for permission.
+- Before invoking `code-editor-pro` or `reviewer`, ask the user for permission.
