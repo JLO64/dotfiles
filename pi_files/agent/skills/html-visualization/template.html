@@ -4,115 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Visualization</title>
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: 'base',
-      fontSize: 20,
-      themeVariables: {
-        // Rosé Pine Moon palette
-        darkMode: true,
-        background:      '#232136',
-        primaryColor:    '#c4a7e7',
-        primaryTextColor:'#e0def4',
-        primaryBorderColor:'#56526e',
-        secondaryColor:  '#3e8fb0',
-        secondaryTextColor:'#e0def4',
-        secondaryBorderColor:'#44415a',
-        tertiaryColor:   '#f6c177',
-        tertiaryTextColor:'#232136',
-        tertiaryBorderColor:'#f6c177',
-        lineColor:       '#6e6a86',
-        textColor:       '#e0def4',
-        mainBkg:         '#2a273f',
-        nodeBorder:      '#56526e',
-        clusterBkg:      '#393552',
-        clusterBorder:   '#56526e',
-        titleColor:      '#e0def4',
-        edgeLabelBackground:'#2a273f',
-        nodeTextColor:   '#e0def4',
-        // Sequence diagram
-        actorBkg:        '#2a273f',
-        actorBorder:     '#56526e',
-        actorTextColor:  '#e0def4',
-        actorLineColor:  '#6e6a86',
-        signalColor:     '#e0def4',
-        signalTextColor: '#e0def4',
-        labelBoxBkgColor:'#2a273f',
-        labelBoxBorderColor:'#56526e',
-        labelTextColor:  '#e0def4',
-        loopTextColor:   '#e0def4',
-        noteBkgColor:    '#393552',
-        noteBorderColor: '#56526e',
-        noteTextColor:   '#e0def4',
-        activationBkgColor:'#393552',
-        activationBorderColor:'#c4a7e7',
-        sequenceNumberColor:'#232136',
-        // State diagram
-        labelColor:      '#e0def4',
-        altBackground:   '#2a273f',
-        // Class diagram
-        classText:       '#e0def4',
-        // Pie chart
-        pie1: '#c4a7e7',
-        pie2: '#3e8fb0',
-        pie3: '#f6c177',
-        pie4: '#eb6f92',
-        pie5: '#9ccfd8',
-        pie6: '#ea9a97',
-        pie7: '#6e6a86',
-        pie8: '#908caa',
-        pieTitleTextColor:'#e0def4',
-        pieSectionTextColor:'#232136',
-        pieLegendTextColor:'#e0def4',
-        pieStrokeColor:  '#232136',
-        pieOpacity: '1.0',
-        // ER diagram
-        entityBorder:    '#56526e',
-        // Gantt
-        sectionBkgColor: '#2a273f',
-        altSectionBkgColor:'#393552',
-        sectionBkgColor2:'#2a273f',
-        taskBkgColor:    '#3e8fb0',
-        taskBorderColor: '#c4a7e7',
-        taskTextColor:   '#232136',
-        taskTextLightColor:'#e0def4',
-        taskTextOutsideColor:'#e0def4',
-        taskTextClickableColor:'#e0def4',
-        activeTaskBkgColor:'#c4a7e7',
-        activeTaskBorderColor:'#e0def4',
-        gridColor:       '#44415a',
-        doneTaskBkgColor:'#6e6a86',
-        doneTaskBorderColor:'#908caa',
-        critBkgColor:    '#eb6f92',
-        critBorderColor: '#eb6f92',
-        todayLineColor:  '#f6c177',
-        // Git
-        commitLabelColor:'#e0def4',
-        commitLabelBackground:'#2a273f',
-        git0: '#eb6f92',
-        git1: '#f6c177',
-        git2: '#9ccfd8',
-        git3: '#c4a7e7',
-        git4: '#3e8fb0',
-        git5: '#ea9a97',
-        git6: '#908caa',
-        git7: '#6e6a86',
-        // C4
-        personBkg:       '#3e8fb0',
-        personBorder:    '#9ccfd8',
-        externalPersonBkg:'#6e6a86',
-        externalPersonBorder:'#908caa',
-        systemBkg:       '#c4a7e7',
-        systemBorder:    '#e0def4',
-        externalSystemBkg:'#eb6f92',
-        externalSystemBorder:'#ea9a97',
-        containerBkg:    '#2a273f',
-        containerBorder: '#56526e',
-      }
-    });
-  </script>
   <style>
     :root {
       /* Rosé Pine Moon */
@@ -140,10 +31,11 @@
     }
 
     body {
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      min-width: 320px;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       background: var(--rp-base);
       color: var(--rp-text);
-      min-height: 100vh;
     }
 
     /* ── Header ── */
@@ -189,11 +81,154 @@
       line-height: 1.6;
     }
 
-    /* ── Mermaid ── */
-    .mermaid {
-      display: flex;
-      justify-content: center;
+    /* ── Native diagram primitives ── */
+    .diagram-canvas {
+      position: relative;
+      display: grid;
+      gap: 1.5rem;
+      min-width: 0;
       margin: 1rem 0;
+    }
+    .diagram-scroll {
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+    .diagram-scroll > .diagram-canvas {
+      min-width: 720px;
+    }
+    .diagram-zone {
+      --brand: var(--rp-muted);
+      min-width: 0;
+      overflow: hidden;
+      border: 2px solid var(--brand);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--brand) 7%, var(--rp-surface));
+    }
+    .diagram-zone-header {
+      display: flex;
+      width: 100%;
+      min-height: 46px;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.72rem 1rem;
+      color: #fff;
+      background: var(--brand);
+      font-size: 0.75rem;
+      font-weight: 850;
+      letter-spacing: 0.065em;
+      text-transform: uppercase;
+    }
+    .diagram-zone-body {
+      padding: 1rem;
+    }
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr));
+      gap: 0.8rem;
+    }
+    .diagram-node {
+      --service: var(--rp-muted);
+      display: grid;
+      grid-template-rows: 48px minmax(48px, 1fr);
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--rp-muted);
+      border-top: 4px solid var(--service);
+      border-radius: 10px;
+      background: var(--rp-base);
+    }
+    .diagram-node-header {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      padding: 0.65rem 0.75rem;
+      color: var(--rp-text);
+      font-size: 0.86rem;
+      font-weight: 750;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+    .diagram-node-body {
+      display: flex;
+      align-items: center;
+      padding: 0.2rem 0.75rem 0.75rem;
+      color: var(--rp-text);
+      font-size: 0.82rem;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .service-card {
+      --service: var(--rp-muted);
+      display: flex;
+      min-width: 0;
+      min-height: 64px;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.75rem;
+      border: 1px solid var(--rp-muted);
+      border-left: 4px solid var(--service);
+      border-radius: 10px;
+      background: var(--rp-base);
+    }
+    .service-card-name {
+      min-width: 0;
+      font-size: 0.86rem;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }
+    .logo-wrap {
+      display: grid;
+      flex: 0 0 24px;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+    }
+    .logo-wrap img {
+      display: block;
+      max-width: 24px;
+      max-height: 24px;
+    }
+    .fallback {
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    /* Put connector SVGs immediately inside .diagram-canvas, before nodes. */
+    .diagram-connectors {
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .diagram-canvas > :not(.diagram-connectors) {
+      position: relative;
+      z-index: 1;
+    }
+    .connector-line {
+      fill: none;
+      stroke: var(--rp-subtle);
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+    }
+    .connector-line--dependency {
+      stroke-dasharray: 6 5;
+    }
+    .connector-marker {
+      fill: var(--rp-iris);
+      stroke: var(--rp-base);
+      stroke-width: 2;
+    }
+    .connector-number {
+      fill: var(--rp-base);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      text-anchor: middle;
+      dominant-baseline: central;
     }
 
     /* ── Legend ── */
@@ -231,6 +266,8 @@
       .container { padding: 1rem; }
       .header { padding: 1rem; }
       .header h1 { font-size: 1.25rem; }
+      .diagram-grid { grid-template-columns: 1fr; }
+      .diagram-zone-header { font-size: 0.67rem; }
     }
   </style>
 </head>

@@ -5,7 +5,7 @@ description: Generate HTML visualizations for diagrams, flows, system architectu
 
 # HTML Visualization
 
-Generate HTML files that render rich, interactive diagrams and visualizations in the browser. HTML is vastly superior to ASCII art for visualizing flows, systems, and architectures.
+Generate rich, static HTML visualizations in the browser. HTML, CSS, and inline SVG are vastly superior to ASCII art for visualizing flows, systems, and architectures.
 
 ## Important: Wait for User Content
 
@@ -19,88 +19,39 @@ Write HTML files to `/tmp/pi-visualizations/<descriptive-name>.html`. Create the
 mkdir -p /tmp/pi-visualizations
 ```
 
-## Validating Mermaid Syntax
+## Diagram Authoring Model
 
-If the generated HTML contains Mermaid diagrams, validate them before opening the browser.
+Create complete, directly openable HTML documents. Use native HTML and CSS for layout, zones, cards, labels, tables, and data presentation. Use inline SVG only when CSS cannot faithfully express a required connector, arrowhead, sequence marker, or other diagram geometry.
 
-### Setup (once)
+Keep CSS and SVG inline. Do not use Mermaid, D3, or another diagram-rendering library. Diagrams must remain static: do not add animation.
 
-Install dependencies in the skill directory:
+### Visual Language
 
-```bash
-npm install --prefix ~/.pi/agent/skills/html-visualization jsdom mermaid
-```
+Use the template’s Rosé Pine Moon canvas and follow this flat, scannable diagram style:
 
-Save the validation script as `~/.pi/agent/skills/html-visualization/validate-mermaid.mjs` (see below for full script).
+- Use crisp sans-serif type, rounded zones and cards, and no gradients, shadows, or decorative effects.
+- Represent systems and artifacts as real components, not numbered process steps. Give each component a clear colored header and one concise, specific body label when needed.
+- Use meaningful service or product colors for component borders, headers, and accents. Use restrained template colors for unbranded internal components.
+- Prefer labels over prose. Omit captions, notes, legends, status copy, and repeated role descriptions unless the user explicitly requests them.
+- Do not encode meaning through color alone: pair colors with component names, text labels, or logos.
+- When using remote logos, provide concise `alt` text and an emoji fallback that appears if the logo cannot load. Do not leave broken-image placeholders.
+- Make layouts responsive from mobile through large desktop widths. Allow horizontal scrolling for a dense connected map rather than shrinking it until it is illegible.
 
-### Usage
+### Flow-Diagram Composition
 
-After writing the HTML, validate it:
+For operational workflows, use a branching node-and-connector map:
 
-```bash
-node ~/.pi/agent/skills/html-visualization/validate-mermaid.mjs /tmp/pi-visualizations/<name>.html
-```
-
-Fix any reported errors, re-validate, and only then open the browser.
-
-### How it works
-
-- For **flowchart, class, state, ER, pie, C4** diagrams: uses `mermaid.parse()` for strict syntax checking.
-- **⚠️ Gantt charts are not supported** — Mermaid Gantt has too many browser-specific quirks and is banned. Use HTML tables or D3 timelines instead.
-- **⚠️ Sequence diagrams are not supported** — banned per user preference. Use flowcharts or pure HTML/CSS for process flows instead.
-
-### Validation script
-
-Save the following as `~/.pi/agent/skills/html-visualization/validate-mermaid.mjs`:
-
-```javascript
-import { readFileSync } from 'fs';
-import { JSDOM } from 'jsdom';
-
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost' });
-for (const k of ['window', 'document', 'Element', 'Node', 'NodeFilter', 'DOMParser']) {
-  Object.defineProperty(globalThis, k, { value: dom.window[k], writable: true });
-}
-
-const mermaid = await import('mermaid');
-mermaid.default.initialize({ startOnLoad: false, securityLevel: 'loose' });
-
-const html = readFileSync(process.argv[2], 'utf-8');
-const re = /<pre class="mermaid">\s*\n?([\s\S]*?)<\/pre>/g;
-let match, idx = 0, errors = 0;
-
-while ((match = re.exec(html)) !== null) {
-  idx++;
-  const code = match[1].trim();
-  const firstLine = code.split('\n')[0].trim();
-
-  // Gantt charts are not supported — skip
-  if (firstLine.toLowerCase().startsWith('gantt')) {
-    console.log(`Block ${idx} (gantt): SKIPPED — Gantt charts are not supported`);
-    continue;
-  }
-
-  // Standard mermaid.parse() for all other diagram types
-  try {
-    await mermaid.default.parse(code);
-    console.log(`Block ${idx} (${firstLine.split(/\s/)[0]}): OK`);
-  } catch (e) {
-    errors++;
-    console.log(`Block ${idx}: FAILED`);
-    console.log(`  ${e.message}`);
-  }
-}
-
-if (errors > 0) {
-  console.log(`\n${errors} mermaid error(s). Fix them before opening the browser.`);
-  process.exit(1);
-}
-console.log('All mermaid blocks passed validation.');
-```
+- Put the functional component name in each colored node header and one bold line in its body for its role, identifier, or artifact. Do not add secondary explanatory text inside nodes.
+- When a card needs extra height, reserve its header height with a grid layout such as `grid-template-rows: 48px 1fr`; do not stretch the header with the body.
+- Place sequence numbers in small circles on directional arrows, never in node headers. Omit arrow labels unless the relationship would otherwise be ambiguous.
+- Model the actual topology. Arrows may branch, converge, cross a route, or return to an earlier layer; do not force a linear chain.
+- Use solid, numbered arrows for the primary runtime sequence. Use restrained dashed arrows for supporting inputs such as source repositories, data APIs, or optional assets; do not number supporting dependencies by default.
+- Keep inline SVG connectors behind nodes and preserve their arrowheads and number circles at every viewport. Keep supporting nodes near their consumer so connectors stay short.
+- Keep a diagram scoped to one lifecycle. Split unrelated later stages into separate diagrams.
 
 ## Opening in Browser
 
-After validating (if applicable), open the file with the OS default browser:
+After writing the HTML, open the file with the OS default browser:
 
 ```bash
 # macOS
@@ -110,41 +61,14 @@ open /tmp/pi-visualizations/<name>.html
 xdg-open /tmp/pi-visualizations/<name>.html
 ```
 
-## Recommended Libraries (CDN)
-
-### Mermaid.js (diagrams, flowcharts, sequence diagrams)
-
-```html
-<script type="module">
-  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { darkMode: true } });
-</script>
-```
-
-Use for: flowcharts, class diagrams, state diagrams, ER diagrams, pie charts, architecture diagrams, C4 diagrams. (Gantt and sequence diagrams are **not supported** — use HTML tables or flowcharts instead.)
-
-> **Note:** The template already includes a full Rosé Pine Moon Mermaid configuration. Copy the template — don't write this from scratch.
-
-### D3.js (custom data visualizations)
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-```
-
-Use for: custom force-directed graphs, hierarchical trees, network topologies, data flow diagrams.
-
-### No library — Pure SVG/Canvas
-
-For simple diagrams, inline SVG or HTML5 Canvas is often sufficient and keeps the file self-contained.
-
 ## Template
 
 **Always start from the template file** at `~/.pi/agent/skills/html-visualization/template.html` instead of writing HTML from scratch. The template provides:
 
-- **Rosé Pine Moon color theme** with CSS custom properties (e.g., `var(--rp-base)`, `var(--rp-surface)`, `var(--rp-iris)`, etc.)
-- **Iris header bar** for the title and description
-- **Surface content cards** for organizing sections
-- **Mermaid.js** pre-configured with matching Rosé Pine Moon theme variables
+- Rosé Pine Moon color theme with CSS custom properties (for example, `var(--rp-base)`, `var(--rp-surface)`, and `var(--rp-iris)`)
+- Iris header bar for the title and description
+- Surface content cards for organizing sections
+- Native HTML/CSS styles for diagram canvases, zones, component nodes, service cards, connectors, and sequence markers
 - Responsive styling and a clean layout
 
 To use it: copy the template, update the `<title>` and header text, then replace `<!-- CONTENT -->` with your visualization content.
@@ -177,27 +101,14 @@ cp ~/.pi/agent/skills/html-visualization/template.html /tmp/pi-visualizations/<n
 
 ## Design Guidelines
 
-1. **Always start from the template** — copy `~/.pi/agent/skills/html-visualization/template.html` and replace `<!-- CONTENT -->` with your content
-2. **Do not use Mermaid unless the user explicitly asks for a diagram** — default to pure HTML/CSS layouts unless diagrams are requested
-3. **Prefer `flowchart TD` over `flowchart LR`** — top-down flowcharts give each node more width so text stays readable. LR is fine for ≤3 nodes; anything wider should be TD.
-4. **Use the Rosé Pine Moon theme** — stick to the CSS variables defined in the template (`--rp-*`); do not introduce new colors
-5. **Make it self-contained** — everything in one file, CDN scripts from fast providers
-6. **Add content inside `.card` containers** — use `<section class="card">` for each logical section of content
-7. **Include a legend** when the diagram uses color or shape semantics (use the `.legend` / `.legend-item` structure from the template)
-8. **Use `/tmp/pi-visualizations/`** for all output files
-
-### Mermaid Syntax Pitfalls
-
-These characters have special meaning in Mermaid and will break your diagram if used unescaped in node text, edge labels, or anywhere outside of code fences:
-
-| Character | Mermaid meaning | Safe replacement |
-|---|---|---|
-| `{` `}` | Rhombus shape syntax (`{text}`) | Use `#123;` and `#125;`, or rewrite e.g. `{council_id}` → `:council_id` |
-| `/` inside `[/.../]` node | Parallelogram closing delimiter — a `/` in the text terminates the node early | Use a rectangular `["..."]` node instead, or avoid slashes in parallelogram text |
-| `(` `)` inside `([...])` node | Stadium shape closing delimiter | Use `["..."]` instead |
-| `&quot;` in edge labels | Unnecessary — regular `"` works fine inside `<pre>` blocks and is less error-prone | Use `"` directly |
-
-**Rule of thumb:** Stick to rectangular nodes (`["..."]`) when your node text contains URLs, code, or template parameters. Only use shape nodes (`[/.../]`, `([...])`, `[(...)]`) for short, simple labels.
+1. **Always start from the template** — copy `~/.pi/agent/skills/html-visualization/template.html` and replace `<!-- CONTENT -->` with your content.
+2. **Use native diagram primitives** — compose diagrams with HTML/CSS zones and nodes; use inline SVG only for connectors that CSS cannot express.
+3. **Use the Rosé Pine Moon theme** — stick to the CSS variables defined in the template (`--rp-*`); do not introduce arbitrary theme colors. Meaningful service accents are the exception when a diagram represents a known branded service.
+4. **Make it self-contained** — put all markup, CSS, and SVG in one file. Remote logos are permitted when they are stable and include an accessible fallback.
+5. **Add content inside `.card` containers** — use `<section class="card">` for each logical section of content.
+6. **Use `.diagram-canvas`, `.diagram-zone`, and `.diagram-node`** for architecture and flow diagrams. Apply `--brand` or `--service` inline to set a component’s meaningful accent color.
+7. **Include a legend** only when the user requests one or when color, shape, or line style has meaning that cannot be conveyed by the diagram’s labels.
+8. **Use `/tmp/pi-visualizations/`** for all output files.
 
 ## Example: Using the Template
 
@@ -213,31 +124,27 @@ cp ~/.pi/agent/skills/html-visualization/template.html /tmp/pi-visualizations/ar
 <!-- CONTENT -->
 <section class="card">
   <h2>System Architecture</h2>
-  <p>High-level architecture showing component relationships.</p>
-  <pre class="mermaid">
-    graph TD
-      A[Client] --> B[API Gateway]
-      B --> C[Auth Service]
-      B --> D[Business Logic]
-      D --> E[(Database)]
-      D --> F[Cache]
-  </pre>
-</section>
-
-<section class="card">
-  <h2>Data Flow</h2>
-  <p>How data moves through the pipeline.</p>
-  <svg id="viz"></svg>
-  <script>
-    // D3 visualization code here
-  </script>
+  <div class="diagram-canvas">
+    <section class="diagram-zone" style="--brand: var(--rp-pine)">
+      <header class="diagram-zone-header">Application</header>
+      <div class="diagram-zone-body diagram-grid">
+        <article class="diagram-node" style="--service: var(--rp-foam)">
+          <h3 class="diagram-node-header">API</h3>
+          <p class="diagram-node-body">Request router</p>
+        </article>
+        <article class="diagram-node" style="--service: var(--rp-iris)">
+          <h3 class="diagram-node-header">Database</h3>
+          <p class="diagram-node-body">Primary records</p>
+        </article>
+      </div>
+    </section>
+  </div>
 </section>
 ```
 
-3. Validate (if Mermaid is used) and open:
+3. Open the result:
 
 ```bash
-node ~/.pi/agent/skills/html-visualization/validate-mermaid.mjs /tmp/pi-visualizations/architecture.html
 # macOS
 open /tmp/pi-visualizations/architecture.html
 ```
