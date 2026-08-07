@@ -24,7 +24,7 @@ function formatTokens(count: number): string {
 }
 
 function formatContextTokens(count: number): string {
-	return `${(count / 1000).toFixed(1)}k`;
+	return count === 0 ? "0" : `${(count / 1000).toFixed(1)}k`;
 }
 
 // ─── Git status ───────────────────────────────────────────────────────────────
@@ -422,18 +422,16 @@ export default function (pi: ExtensionAPI) {
 						const elapsedMs = Date.now() - timerState.lastCompletionTime;
 						const elapsedSec = Math.ceil(Math.floor(elapsedMs / 1000) / 5) * 5;
 						if (elapsedSec < 60) {
-							elapsedStr = `(${elapsedSec}s)`;
+							elapsedStr = "(0m)";
 						} else if (elapsedSec < 3600) {
 							const minutes = Math.floor(elapsedSec / 60);
-							const seconds = elapsedSec % 60;
-							elapsedStr = `(${minutes}m${seconds}s)`;
+							elapsedStr = `(${minutes}m)`;
 						} else if (elapsedSec < 86400) {
 							const hours = Math.floor(elapsedSec / 3600);
-							const minutes = Math.floor((elapsedSec % 3600) / 60);
-							elapsedStr = `(${hours}h${minutes}m)`;
+							elapsedStr = `(${hours}h)`;
 						} else {
 							const days = Math.floor(elapsedSec / 86400);
-							elapsedStr = `(+${days}d)`;
+							elapsedStr = `(${days}d)`;
 						}
 					}
 
@@ -451,9 +449,9 @@ export default function (pi: ExtensionAPI) {
 
 					let contextStr: string;
 					const formattedContextTokens = formatContextTokens(contextTokens);
-					if (contextPercent > 90) {
+					if (contextPercent > 80) {
 						contextStr = theme.fg("error", formattedContextTokens);
-					} else if (contextPercent > 70) {
+					} else if (contextPercent > 50) {
 						contextStr = theme.fg("warning", formattedContextTokens);
 					} else {
 						contextStr = formattedContextTokens;
@@ -462,7 +460,15 @@ export default function (pi: ExtensionAPI) {
 					// Cost display: show ChatGPT Plus percentage for openai-codex
 					let costStr: string;
 					if (ctx.model?.provider === "openai-codex") {
-						costStr = chatGPTPlusPercent !== null ? `${chatGPTPlusPercent}%` : "—";
+						if (chatGPTPlusPercent === null) {
+							costStr = "—";
+						} else if (chatGPTPlusPercent > 80) {
+							costStr = theme.fg("error", `${chatGPTPlusPercent}%`);
+						} else if (chatGPTPlusPercent > 50) {
+							costStr = theme.fg("warning", `${chatGPTPlusPercent}%`);
+						} else {
+							costStr = `${chatGPTPlusPercent}%`;
+						}
 					} else if (streamingState.isStreaming && streamingCost > 0) {
 						const baseCost = totalCost > 0 ? totalCost : 0;
 						const estimate = Math.ceil(streamingCost * 100) / 100;
