@@ -2,6 +2,28 @@
 
 `pi-vim` adds Vim-style modal editing to Pi's prompt editor.
 
+## Agent and skill references
+
+In insert mode, type `#` to fuzzy-search installed subagents or `$` to
+fuzzy-search available skills. Select a result with Pi's normal autocomplete
+controls (for example, Tab); pi-vim inserts only the corresponding plain-text
+reference, such as `#local-researcher` or `$html-visualization`. Picker rows
+show names only.
+
+These references do not load a skill or dispatch a subagent. They remain part
+of your prompt for the main agent to interpret, so they can be used naturally:
+
+```text
+Dispatch a #local-researcher agent to inspect the editor using the $html-visualization skill.
+```
+
+The `#` picker reads user agents from `~/.pi/agent/agents/` and project agents
+from the nearest `.pi/agents/` directory; project definitions override user
+ones with the same name. The `$` picker uses Pi's resolved active skill
+commands, including skills supplied through project settings, packages, and
+extensions. Existing `@` file references and slash-command completion are
+unchanged.
+
 ## Shell input and history suggestions
 
 Input whose first character is `!` uses shell mode. The editor border and status

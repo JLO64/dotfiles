@@ -77,6 +77,7 @@ import {
   ZshHistoryService,
 } from "./zsh-history.js";
 import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
+import { createAgentAndSkillAutocompleteProvider } from "./autocomplete.js";
 
 import type {
   Mode,
@@ -1765,6 +1766,14 @@ export class ModalEditor extends CustomEditor {
     this.moveCursorToLineStart(targetLine);
   }
 
+  private refreshAutocompleteAfterCursorMove(): void {
+    const editor = this as unknown as {
+      autocompleteState?: unknown;
+      updateAutocomplete?: () => void;
+    };
+    if (editor.autocompleteState) editor.updateAutocomplete?.();
+  }
+
   private tryMoveCursorByState(delta: number): boolean {
     if (delta === 0) return true;
 
@@ -1791,6 +1800,7 @@ export class ModalEditor extends CustomEditor {
 
     state.cursorCol = target;
     editor.preferredVisualCol = target;
+    this.refreshAutocompleteAfterCursorMove();
     editor.tui?.requestRender?.();
     return true;
   }
@@ -1835,6 +1845,7 @@ export class ModalEditor extends CustomEditor {
     state.cursorLine = targetLine;
     state.cursorCol = Math.min(preferredCol, targetLineText.length);
     editor.preferredVisualCol = preferredCol;
+    this.refreshAutocompleteAfterCursorMove();
     editor.tui?.requestRender?.();
   }
 
@@ -1852,6 +1863,7 @@ export class ModalEditor extends CustomEditor {
     editor.lastAction = null;
     state.cursorCol = col;
     editor.preferredVisualCol = col;
+    this.refreshAutocompleteAfterCursorMove();
     editor.tui?.requestRender?.();
   }
 
@@ -1871,6 +1883,7 @@ export class ModalEditor extends CustomEditor {
     state.cursorLine = line;
     state.cursorCol = col;
     editor.preferredVisualCol = col;
+    this.refreshAutocompleteAfterCursorMove();
     editor.tui?.requestRender?.();
   }
 
@@ -1893,6 +1906,7 @@ export class ModalEditor extends CustomEditor {
     state.cursorLine = targetLine;
     state.cursorCol = 0;
     editor.preferredVisualCol = null;
+    this.refreshAutocompleteAfterCursorMove();
     editor.tui?.requestRender?.();
   }
 
@@ -3571,6 +3585,9 @@ export default function (pi: ExtensionAPI) {
     // trigger a render flicker on agent start.
     ctx.ui.setWorkingVisible(false);
     historyService.start();
+    ctx.ui.addAutocompleteProvider?.((current) =>
+      createAgentAndSkillAutocompleteProvider(current, ctx.cwd, () => pi.getCommands()),
+    );
     const appTheme = ctx.ui.theme;
     ctx.ui.setEditorComponent((tui, theme, kb) => {
       activeTui = tui as { terminal?: { write: (data: string) => void } };

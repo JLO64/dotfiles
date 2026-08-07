@@ -140,6 +140,19 @@ describe("pi-vim shell ghost suggestions", () => {
     expect(editor.getText()).toBe("!git sta");
   });
 
+  test("refreshes active autocomplete after a Vim cursor move", () => {
+    const editor = makeEditor();
+    editor.setText("text #local");
+    (editor as any).autocompleteState = "regular";
+    let refreshes = 0;
+    (editor as any).updateAutocomplete = () => { refreshes++; };
+
+    editor.handleInput("\x1b");
+    editor.handleInput("h");
+
+    expect(refreshes).toBe(1);
+  });
+
   test("does not override an active autocomplete menu", () => {
     const editor = makeEditor(["git status --short"]);
     editor.setText("!git sta");
