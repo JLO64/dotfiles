@@ -23,6 +23,10 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1000000)}M`;
 }
 
+function formatContextTokens(count: number): string {
+	return `${(count / 1000).toFixed(1)}k`;
+}
+
 // ─── Git status ───────────────────────────────────────────────────────────────
 
 interface GitInfo {
@@ -391,6 +395,7 @@ export default function (pi: ExtensionAPI) {
 					// Context usage
 					const contextUsage = ctx.getContextUsage();
 					const contextPercent = contextUsage?.percent ?? 0;
+					const contextTokens = contextUsage?.tokens ?? 0;
 
 					// Model
 					const modelName = shortenModelName(
@@ -445,12 +450,13 @@ export default function (pi: ExtensionAPI) {
 					const outputStr = totalOutput > 0 ? `↓${formatTokens(totalOutput)}` : "";
 
 					let contextStr: string;
+					const formattedContextTokens = formatContextTokens(contextTokens);
 					if (contextPercent > 90) {
-						contextStr = theme.fg("error", `${contextPercent.toFixed(1)}%`);
+						contextStr = theme.fg("error", formattedContextTokens);
 					} else if (contextPercent > 70) {
-						contextStr = theme.fg("warning", `${contextPercent.toFixed(1)}%`);
+						contextStr = theme.fg("warning", formattedContextTokens);
 					} else {
-						contextStr = `${contextPercent.toFixed(1)}%`;
+						contextStr = formattedContextTokens;
 					}
 
 					// Cost display: show ChatGPT Plus percentage for openai-codex
