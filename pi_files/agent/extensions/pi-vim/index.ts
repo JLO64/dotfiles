@@ -66,6 +66,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
+  Editor,
   Key,
   matchesKey,
   truncateToWidth,
@@ -577,13 +578,23 @@ export class ModalEditor extends CustomEditor {
     }
 
     if (this.mode === "insert") {
-      if (matchesKey(data, "tab") && !this.isShowingAutocomplete()) {
-        const suffix = this.getEligibleGhostSuffix();
-        if (suffix) {
-          this.insertTextAtCursor(suffix);
-          this.requestRender();
-          return;
+      if (matchesKey(data, "tab") && this.isShowingAutocomplete()) {
+        // Tab globally cycles thinking. Bypass CustomEditor's app-action
+        // dispatch so active completion keeps Pi's native Tab behavior.
+        return Editor.prototype.handleInput.call(this, data);
+      }
+
+      if (matchesKey(data, Key.shift("tab"))) {
+        if (!this.isShowingAutocomplete()) {
+          const suffix = this.getEligibleGhostSuffix();
+          if (suffix) {
+            this.insertTextAtCursor(suffix);
+            this.requestRender();
+          }
         }
+        // Shift+Tab is reserved for shell ghost acceptance and otherwise
+        // intentionally does nothing.
+        return;
       }
 
       // Shift+Alt+A: go to end of line (like Esc -> A but stay in insert)

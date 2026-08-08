@@ -31,9 +31,11 @@ label change to `SHELL`; `!!` keeps Pi's existing behavior of excluding the
 command and result from model context.
 
 In insert mode, a single-line shell command can show a dim inline suggestion
-from Zsh history when the cursor is at the end of the line. Press Tab to accept
-the suggestion. If no suggestion is eligible, Tab is passed unchanged to Pi's
-normal path/autocomplete handling.
+from Zsh history when the cursor is at the end of the line. Press Shift+Tab to
+accept the suggestion. If no suggestion is eligible, Shift+Tab does nothing.
+Tab cycles Pi's thinking level through the global `app.thinking.cycle` binding
+in [`../../keybindings.json`](../../keybindings.json); when a Pi autocomplete
+picker is active, Tab accepts its selected item instead.
 
 History is resolved from `ZSH_HISTORY_FILE`, then `HISTFILE`, then
 `~/.zsh_history`. The extension keeps history only in local memory, filters
