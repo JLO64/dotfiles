@@ -8,6 +8,13 @@ const GHOST_STYLE = "\x1b[2;38;5;245m";
 
 const services: ZshHistoryService[] = [];
 
+function stripTerminalControls(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b_[^\x07]*\x07/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
 afterEach(() => {
   for (const service of services.splice(0)) service.dispose();
 });
@@ -97,6 +104,7 @@ describe("pi-vim shell ghost suggestions", () => {
     expect(editor.getGhostSuffix()).toBe("tus --short");
     const rendered = editor.render(50).join("\n");
     expect(rendered).toContain(`${GHOST_STYLE}tus --short`);
+    expect(stripTerminalControls(rendered)).toContain("! git status --short");
     expect(editor.getText()).toBe("! git sta");
   });
 
