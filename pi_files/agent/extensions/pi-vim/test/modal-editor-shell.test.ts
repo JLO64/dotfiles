@@ -104,6 +104,7 @@ describe("pi-vim shell ghost suggestions", () => {
     expect(editor.getGhostSuffix()).toBe("tus --short");
     const rendered = editor.render(50).join("\n");
     expect(rendered).toContain(`${GHOST_STYLE}tus --short`);
+    expect(rendered).not.toContain("\x1b[7m \x1b[0m");
     expect(stripTerminalControls(rendered)).toContain("! git status --short");
     expect(editor.getText()).toBe("! git sta");
   });

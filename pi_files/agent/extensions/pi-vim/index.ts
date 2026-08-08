@@ -3286,22 +3286,19 @@ export class ModalEditor extends CustomEditor {
 
     const line = baseLines[lineIndex]!;
     const cursorIndex = line.indexOf(FAKE_CURSOR_AT_LINE_END);
-    const cursorEnd = cursorIndex + FAKE_CURSOR_AT_LINE_END.length;
     const beforeFakeCursor = line.slice(0, cursorIndex);
-    const fakeCursor = line.slice(cursorIndex, cursorEnd);
     const paddingX = Math.min(
       this.getPaddingX(),
       Math.max(0, Math.floor((width - 1) / 2)),
     );
     const availableWidth = Math.max(
       0,
-      width - visibleWidth(beforeFakeCursor) - visibleWidth(fakeCursor) - paddingX,
+      width - visibleWidth(beforeFakeCursor) - paddingX,
     );
     const visibleSuffix = truncateToWidth(suffix, availableWidth, "");
     if (!visibleSuffix) return baseLines;
 
-    const withGhost =
-      `${beforeFakeCursor}${GHOST_STYLE_START}${visibleSuffix}${STYLE_RESET}${fakeCursor}`;
+    const withGhost = `${beforeFakeCursor}${GHOST_STYLE_START}${visibleSuffix}${STYLE_RESET}`;
     const padding = " ".repeat(Math.max(0, width - visibleWidth(withGhost)));
     const result = [...baseLines];
     result[lineIndex] = withGhost + padding;
