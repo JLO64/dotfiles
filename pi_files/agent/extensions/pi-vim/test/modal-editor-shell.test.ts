@@ -110,11 +110,11 @@ describe("pi-vim shell ghost suggestions", () => {
     expect(editor.getText()).toBe("! git sta");
   });
 
-  test("Shift+Tab atomically accepts the suffix and leaves the cursor at the end", () => {
+  test("Tab atomically accepts the suffix and leaves the cursor at the end", () => {
     const editor = makeEditor(["npm run test"]);
     editor.setText("!!npm run te");
 
-    editor.handleInput("\x1b[Z");
+    editor.handleInput("\t");
 
     expect(editor.getText()).toBe("!!npm run test");
     expect(editor.getCursor()).toEqual({ line: 0, col: 14 });
@@ -131,26 +131,7 @@ describe("pi-vim shell ghost suggestions", () => {
     expect(editor.getGhostSuffix()).toBeNull();
   });
 
-  test("delegates Tab unchanged when no ghost is eligible", () => {
-    const editor = makeEditor();
-    editor.setText("!git sta");
-    const original = CustomEditor.prototype.handleInput;
-    let delegated: string | null = null;
-    CustomEditor.prototype.handleInput = function (data: string): void {
-      delegated = data;
-    };
-
-    try {
-      editor.handleInput("\t");
-    } finally {
-      CustomEditor.prototype.handleInput = original;
-    }
-
-    expect(delegated).toBe("\t");
-    expect(editor.getText()).toBe("!git sta");
-  });
-
-  test("consumes Shift+Tab when no shell ghost is eligible", () => {
+  test("consumes Tab when no shell ghost is eligible", () => {
     const editor = makeEditor();
     editor.setText("!git sta");
     const original = CustomEditor.prototype.handleInput;
@@ -160,12 +141,31 @@ describe("pi-vim shell ghost suggestions", () => {
     };
 
     try {
-      editor.handleInput("\x1b[Z");
+      editor.handleInput("\t");
     } finally {
       CustomEditor.prototype.handleInput = original;
     }
 
     expect(delegated).toBe(false);
+  });
+
+  test("delegates Shift+Tab unchanged to Pi", () => {
+    const editor = makeEditor();
+    editor.setText("!git sta");
+    const original = CustomEditor.prototype.handleInput;
+    let delegated: string | null = null;
+    CustomEditor.prototype.handleInput = function (data: string): void {
+      delegated = data;
+    };
+
+    try {
+      editor.handleInput("\x1b[Z");
+    } finally {
+      CustomEditor.prototype.handleInput = original;
+    }
+
+    expect(delegated).toBe("\x1b[Z");
+    expect(editor.getText()).toBe("!git sta");
   });
 
   test("refreshes active autocomplete after a Vim cursor move", () => {

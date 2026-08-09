@@ -578,21 +578,19 @@ export class ModalEditor extends CustomEditor {
     }
 
     if (this.mode === "insert") {
-      if (matchesKey(data, "tab") && this.isShowingAutocomplete()) {
-        // Tab globally cycles thinking. Bypass CustomEditor's app-action
-        // dispatch so active completion keeps Pi's native Tab behavior.
-        return Editor.prototype.handleInput.call(this, data);
-      }
-
-      if (matchesKey(data, Key.shift("tab"))) {
-        if (!this.isShowingAutocomplete()) {
-          const suffix = this.getEligibleGhostSuffix();
-          if (suffix) {
-            this.insertTextAtCursor(suffix);
-            this.requestRender();
-          }
+      if (matchesKey(data, "tab")) {
+        if (this.isShowingAutocomplete()) {
+          // Bypass CustomEditor's app-action dispatch so active completion
+          // keeps Pi's native Tab behavior.
+          return Editor.prototype.handleInput.call(this, data);
         }
-        // Shift+Tab is reserved for shell ghost acceptance and otherwise
+
+        const suffix = this.getEligibleGhostSuffix();
+        if (suffix) {
+          this.insertTextAtCursor(suffix);
+          this.requestRender();
+        }
+        // Tab is reserved for shell ghost acceptance and otherwise
         // intentionally does nothing.
         return;
       }
