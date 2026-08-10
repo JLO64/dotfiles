@@ -29,6 +29,7 @@ import {
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { buildAgentResourceArgs } from "./resource-config.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -318,6 +319,14 @@ async function runSingleAgent(
 			});
 		}
 	};
+
+	try {
+		args.push(...buildAgentResourceArgs(agent));
+	} catch (error) {
+		currentResult.exitCode = 1;
+		currentResult.stderr = error instanceof Error ? error.message : String(error);
+		return currentResult;
+	}
 
 	try {
 		if (agent.systemPrompt.trim()) {

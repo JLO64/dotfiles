@@ -12,6 +12,10 @@ export interface AgentConfig {
 	name: string;
 	description: string;
 	tools?: string[];
+	extensions?: string[];
+	skills?: string[];
+	isolateExtensions?: boolean;
+	isolateSkills?: boolean;
 	model?: string;
 	systemPrompt: string;
 	source: "user" | "project";
@@ -21,6 +25,49 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+function parseList(value: unknown): string[] | undefined {
+	if (typeof value !== "string") return undefined;
+	const items = value
+		.split(",")
+		.map((item) => item.trim())
+		.filter(Boolean);
+	return items.length > 0 ? items : undefined;
+}
+
+function parseBoolean(value: unknown): boolean | undefined {
+	if (typeof value === "boolean") return value;
+	if (typeof value !== "string") return undefined;
+	if (value.trim().toLowerCase() === "true") return true;
+	if (value.trim().toLowerCase() === "false") return false;
+	return undefined;
+}
+
+export function parseAgentContent(
+	content: string,
+	filePath: string,
+	source: "user" | "project",
+): AgentConfig | null {
+	const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
+
+	if (typeof frontmatter.name !== "string" || typeof frontmatter.description !== "string") {
+		return null;
+	}
+
+	return {
+		name: frontmatter.name,
+		description: frontmatter.description,
+		tools: parseList(frontmatter.tools),
+		extensions: parseList(frontmatter.extensions),
+		skills: parseList(frontmatter.skills),
+		isolateExtensions: parseBoolean(frontmatter["isolate-extensions"]),
+		isolateSkills: parseBoolean(frontmatter["isolate-skills"]),
+		model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+		systemPrompt: body,
+		source,
+		filePath,
+	};
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -49,26 +96,8 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
-
-		if (!frontmatter.name || !frontmatter.description) {
-			continue;
-		}
-
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
-
-		agents.push({
-			name: frontmatter.name,
-			description: frontmatter.description,
-			tools: tools && tools.length > 0 ? tools : undefined,
-			model: frontmatter.model,
-			systemPrompt: body,
-			source,
-			filePath,
-		});
+		const agent = parseAgentContent(content, filePath, source);
+		if (agent) agents.push(agent);
 	}
 
 	return agents;

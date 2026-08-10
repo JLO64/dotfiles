@@ -2,6 +2,9 @@
 name: online-researcher
 description: Searches the web for relevant official documentation and verifies external facts. Use for API behavior, package/library documentation, changelogs, standards, and web-backed answers.
 tools: web_search, web_fetch, read
+extensions: ../restricted-extensions/web-search.ts
+isolate-extensions: true
+isolate-skills: true
 model: openai-codex/gpt-5.6-luna:medium
 ---
 
