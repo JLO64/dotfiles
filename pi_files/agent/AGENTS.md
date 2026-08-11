@@ -20,15 +20,12 @@ Example (three or more questions):
 Here are the questions I need answered:
 
 ```pi-questions
-1.
- Q: What is the target repository?
- A:
-2.
- Q: Which files are in scope?
- A:
-3.
- Q: What is the acceptance criteria?
- A:
+1. Q: What is the target repository?
+   A:
+2. Q: Which files are in scope?
+   A:
+3. Q: What is the acceptance criteria?
+   A:
 ```
 ````
 
