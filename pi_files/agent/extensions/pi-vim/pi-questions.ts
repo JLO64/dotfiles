@@ -4,8 +4,9 @@
  *
  * Extracts the body of a single standalone block tagged `pi-questions`, but
  * only when the body contains at least three valid numbered entries in the
- * exact shape: number line, ` Q:` line, ` A:` line. Rejects malformed/empty
- * fences, unrelated fenced blocks, empty questions, malformed entries,
+ * exact shape: `number. Q:` line followed by an ` A:` line (or the legacy
+ * three-line form with the number and ` Q:` on separate lines). Rejects
+ * malformed/empty fences, unrelated fenced blocks, empty questions, malformed entries,
  * non-sequential numbering, and fewer than three entries.
  *
  * CRLF is normalized and surrounding blank lines are trimmed, but internal
@@ -16,6 +17,7 @@ const OPEN_FENCE = /^\s*```\s*pi-questions\s*$/;
 const CLOSE_FENCE = /^\s*```\s*$/;
 const NUMBER_LINE = /^\s*(\d+)\.\s*$/;
 const Q_LINE = /^\s*Q:\s*(\S.*)$/;
+const NUMBER_Q_LINE = /^\s*(\d+)\.\s*Q:\s*(\S.*)$/;
 const A_LINE = /^\s*A:\s*$/;
 
 interface PiQuestionsBlock {
@@ -24,20 +26,24 @@ interface PiQuestionsBlock {
   endLine: number;
 }
 
-function isValidEntry(lines: string[], start: number): number | null {
+function isValidEntry(
+  lines: string[],
+  start: number,
+): { consumed: number; number: number } | null {
   if (start >= lines.length) return null;
+
+  const compactMatch = lines[start]!.match(NUMBER_Q_LINE);
+  if (compactMatch && start + 1 < lines.length && A_LINE.test(lines[start + 1]!)) {
+    return { consumed: 2, number: Number(compactMatch[1]) };
+  }
+
   const numMatch = lines[start]!.match(NUMBER_LINE);
-  if (!numMatch) return null;
+  if (!numMatch || start + 2 >= lines.length) return null;
+  if (!Q_LINE.test(lines[start + 1]!) || !A_LINE.test(lines[start + 2]!)) {
+    return null;
+  }
 
-  if (start + 1 >= lines.length) return null;
-  const qMatch = lines[start + 1]!.match(Q_LINE);
-  if (!qMatch) return null;
-
-  if (start + 2 >= lines.length) return null;
-  const aMatch = lines[start + 2]!.match(A_LINE);
-  if (!aMatch) return null;
-
-  return 3;
+  return { consumed: 3, number: Number(numMatch[1]) };
 }
 
 function stripSurroundingBlankLines(text: string): string {
@@ -84,15 +90,12 @@ function findPiQuestionsBlock(text: string): PiQuestionsBlock | null {
     let validCount = 0;
 
     while (index < bodyLines.length) {
-      const consumed = isValidEntry(bodyLines, index);
-      if (consumed === null) break;
-
-      const num = Number(bodyLines[index]!.match(NUMBER_LINE)![1]);
-      if (num !== expectedNumber) break;
+      const entry = isValidEntry(bodyLines, index);
+      if (entry === null || entry.number !== expectedNumber) break;
 
       expectedNumber++;
       validCount++;
-      index += consumed;
+      index += entry.consumed;
     }
 
     if (validCount >= 3 && index === bodyLines.length) {

@@ -5,7 +5,16 @@ function block(body: string): string {
   return `\`\`\`pi-questions\n${body}\n\`\`\``;
 }
 
-const VALID_THREE = `1.
+const VALID_THREE = `1. Q: What is the target repository?
+   A:
+2. Q: Which files are in scope?
+   A:
+3. Q: What is the acceptance criteria?
+   A:`;
+
+const VALID_FOUR = `${VALID_THREE}\n4. Q: Extra?\n   A:`;
+
+const LEGACY_VALID_THREE = `1.
  Q: What is the target repository?
  A:
 2.
@@ -14,8 +23,6 @@ const VALID_THREE = `1.
 3.
  Q: What is the acceptance criteria?
  A:`;
-
-const VALID_FOUR = `${VALID_THREE}\n4.\n Q: Extra?\n A:`;
 
 const VALID_TWO = `1.
  Q: What?
@@ -40,6 +47,10 @@ describe("extractPiQuestions", () => {
 
   test("extracts a valid block with more than three questions", () => {
     expect(extractPiQuestions(block(VALID_FOUR))).toBe(VALID_FOUR);
+  });
+
+  test("preserves the legacy three-line format", () => {
+    expect(extractPiQuestions(block(LEGACY_VALID_THREE))).toBe(LEGACY_VALID_THREE);
   });
 
   test("rejects fewer than three valid entries", () => {

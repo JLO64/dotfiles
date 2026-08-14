@@ -2,26 +2,20 @@ import { describe, expect, test } from "bun:test";
 import extension from "../index.ts";
 
 const VALID_BLOCK = `\`\`\`pi-questions
-1.
- Q: What is the target repository?
- A:
-2.
- Q: Which files are in scope?
- A:
-3.
- Q: What is the acceptance criteria?
- A:
+1. Q: What is the target repository?
+   A:
+2. Q: Which files are in scope?
+   A:
+3. Q: What is the acceptance criteria?
+   A:
 \`\`\``;
 
-const BLOCK_BODY = `1.
- Q: What is the target repository?
- A:
-2.
- Q: Which files are in scope?
- A:
-3.
- Q: What is the acceptance criteria?
- A:`;
+const BLOCK_BODY = `1. Q: What is the target repository?
+   A:
+2. Q: Which files are in scope?
+   A:
+3. Q: What is the acceptance criteria?
+   A:`;
 
 function setupExtension() {
   const handlers: Record<string, (...args: any[]) => any> = {};
