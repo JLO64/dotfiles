@@ -14,6 +14,31 @@ const VALID_THREE = `1. Q: What is the target repository?
 
 const VALID_FOUR = `${VALID_THREE}\n4. Q: Extra?\n   A:`;
 
+const COMPACT_MULTILINE_POPULATED = `1. Q: What is the target repository and
+   which package should be changed?
+   A: The dotfiles repository.
+      The extension is pi-vim.
+2. Q:
+   Which files are in scope?
+   A: pi-questions.ts and its tests.
+3. Q: What is the acceptance criteria?
+   A:
+      Preserve this continuation for the user to edit.`;
+
+const LEGACY_MULTILINE_POPULATED = `1.
+ Q: What is the target repository and
+    which package should be changed?
+ A: The dotfiles repository.
+    The extension is pi-vim.
+2.
+ Q:
+    Which files are in scope?
+ A: pi-questions.ts and its tests.
+3.
+ Q: What is the acceptance criteria?
+ A:
+    Preserve this continuation for the user to edit.`;
+
 const LEGACY_VALID_THREE = `1.
  Q: What is the target repository?
  A:
@@ -51,6 +76,18 @@ describe("extractPiQuestions", () => {
 
   test("preserves the legacy three-line format", () => {
     expect(extractPiQuestions(block(LEGACY_VALID_THREE))).toBe(LEGACY_VALID_THREE);
+  });
+
+  test("extracts compact multiline questions with populated answers", () => {
+    expect(extractPiQuestions(block(COMPACT_MULTILINE_POPULATED))).toBe(
+      COMPACT_MULTILINE_POPULATED,
+    );
+  });
+
+  test("extracts legacy multiline questions with populated answers", () => {
+    expect(extractPiQuestions(block(LEGACY_MULTILINE_POPULATED))).toBe(
+      LEGACY_MULTILINE_POPULATED,
+    );
   });
 
   test("rejects fewer than three valid entries", () => {
@@ -122,6 +159,25 @@ describe("extractPiQuestions", () => {
   test("rejects extra non-entry lines in the body", () => {
     const extraLine = `${VALID_THREE}\nThis is not a valid entry.`;
     expect(extractPiQuestions(block(extraLine))).toBeNull();
+  });
+
+  test("rejects unindented continuation lines and entries without an answer", () => {
+    const unindentedContinuation = `1. Q: First question
+This is not a continuation.
+A:
+2. Q: Second question
+A:
+3. Q: Third question
+A:`;
+    expect(extractPiQuestions(block(unindentedContinuation))).toBeNull();
+
+    const missingAnswer = `1. Q: First question
+   Continued detail.
+2. Q: Second question
+   A:
+3. Q: Third question
+   A:`;
+    expect(extractPiQuestions(block(missingAnswer))).toBeNull();
   });
 
   test("tolerates CRLF line endings", () => {

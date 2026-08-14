@@ -3,11 +3,11 @@
  * the editor.
  *
  * Extracts the body of a single standalone block tagged `pi-questions`, but
- * only when the body contains at least three valid numbered entries in the
- * exact shape: `number. Q:` line followed by an ` A:` line (or the legacy
- * three-line form with the number and ` Q:` on separate lines). Rejects
- * malformed/empty fences, unrelated fenced blocks, empty questions, malformed entries,
- * non-sequential numbering, and fewer than three entries.
+ * only when the body contains at least three valid sequential numbered entries.
+ * Entries may use either `number. Q:` or the legacy number and `Q:` lines,
+ * with indented continuation lines and optional pre-populated `A:` content.
+ * Rejects malformed/empty fences, unrelated fenced blocks, empty questions,
+ * malformed entries, non-sequential numbering, and fewer than three entries.
  *
  * CRLF is normalized and surrounding blank lines are trimmed, but internal
  * indentation is preserved.
@@ -16,9 +16,9 @@
 const OPEN_FENCE = /^\s*```\s*pi-questions\s*$/;
 const CLOSE_FENCE = /^\s*```\s*$/;
 const NUMBER_LINE = /^\s*(\d+)\.\s*$/;
-const Q_LINE = /^\s*Q:\s*(\S.*)$/;
-const NUMBER_Q_LINE = /^\s*(\d+)\.\s*Q:\s*(\S.*)$/;
-const A_LINE = /^\s*A:\s*$/;
+const Q_LINE = /^\s*Q:\s*(.*)$/;
+const NUMBER_Q_LINE = /^\s*(\d+)\.\s*Q:\s*(.*)$/;
+const A_LINE = /^\s*A:\s*(.*)$/;
 
 interface PiQuestionsBlock {
   body: string;
@@ -26,24 +26,65 @@ interface PiQuestionsBlock {
   endLine: number;
 }
 
+interface EntryHeader {
+  number: number;
+  question: string;
+  next: number;
+}
+
+function entryHeader(lines: string[], start: number): EntryHeader | null {
+  if (start >= lines.length) return null;
+
+  const compactMatch = lines[start]!.match(NUMBER_Q_LINE);
+  if (compactMatch) {
+    return {
+      number: Number(compactMatch[1]),
+      question: compactMatch[2]!,
+      next: start + 1,
+    };
+  }
+
+  const numberMatch = lines[start]!.match(NUMBER_LINE);
+  const questionMatch = numberMatch && lines[start + 1]?.match(Q_LINE);
+  if (!numberMatch || !questionMatch) return null;
+
+  return {
+    number: Number(numberMatch[1]),
+    question: questionMatch[1]!,
+    next: start + 2,
+  };
+}
+
+function isContinuationLine(line: string): boolean {
+  return line.trim() === "" || /^\s+\S/.test(line);
+}
+
 function isValidEntry(
   lines: string[],
   start: number,
 ): { consumed: number; number: number } | null {
-  if (start >= lines.length) return null;
+  const header = entryHeader(lines, start);
+  if (!header) return null;
 
-  const compactMatch = lines[start]!.match(NUMBER_Q_LINE);
-  if (compactMatch && start + 1 < lines.length && A_LINE.test(lines[start + 1]!)) {
-    return { consumed: 2, number: Number(compactMatch[1]) };
+  let index = header.next;
+  let hasQuestionContent = header.question.trim().length > 0;
+
+  while (index < lines.length && !A_LINE.test(lines[index]!)) {
+    if (entryHeader(lines, index) || !isContinuationLine(lines[index]!)) return null;
+    hasQuestionContent ||= lines[index]!.trim().length > 0;
+    index++;
   }
 
-  const numMatch = lines[start]!.match(NUMBER_LINE);
-  if (!numMatch || start + 2 >= lines.length) return null;
-  if (!Q_LINE.test(lines[start + 1]!) || !A_LINE.test(lines[start + 2]!)) {
-    return null;
+  if (!hasQuestionContent || index >= lines.length) return null;
+
+  index++; // Consume the A: line, whose content may be empty.
+  while (index < lines.length) {
+    if (entryHeader(lines, index)) break;
+    if (!isContinuationLine(lines[index]!)) return null;
+    index++;
   }
 
-  return { consumed: 3, number: Number(numMatch[1]) };
+  return { consumed: index - start, number: header.number };
 }
 
 function stripSurroundingBlankLines(text: string): string {

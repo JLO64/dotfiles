@@ -17,6 +17,28 @@ const BLOCK_BODY = `1. Q: What is the target repository?
 3. Q: What is the acceptance criteria?
    A:`;
 
+const PREPOPULATED_MULTILINE_BODY = `1.
+ Q: What is the target repository and
+    which package should be updated?
+ A: /Users/example/git/dotfiles
+2.
+ Q: Which files are in scope?
+ A: pi_files/agent/extensions/pi-vim/pi-questions.ts
+    and its focused tests.
+3.
+ Q: Should the old compact layout still work?
+ A: Yes.
+4.
+ Q: What should happen to the block?
+ A: Strip it from the message and prefill the editor.
+5.
+ Q: What validation is required?
+ A: Run the focused and full extension test suites.`;
+
+const PREPOPULATED_MULTILINE_BLOCK = `\`\`\`pi-questions
+${PREPOPULATED_MULTILINE_BODY}
+\`\`\``;
+
 function setupExtension() {
   const handlers: Record<string, (...args: any[]) => any> = {};
   let editor: any = null;
@@ -111,6 +133,23 @@ describe("message_end", () => {
 
     handlers["agent_settled"]();
     expect(editor.getText()).toBe(BLOCK_BODY);
+
+    cleanup();
+  });
+
+  test("strips and prefills a legacy multiline block with populated answers", () => {
+    const { handlers, editor, cleanup } = setupExtension();
+    const message = {
+      role: "assistant",
+      stopReason: "stop",
+      content: `Before\n\n${PREPOPULATED_MULTILINE_BLOCK}\n\nAfter`,
+    };
+
+    const result = handlers["message_end"]({ message });
+
+    expect(result?.message.content).toBe("Before\n\nAfter");
+    handlers["agent_settled"]();
+    expect(editor.getText()).toBe(PREPOPULATED_MULTILINE_BODY);
 
     cleanup();
   });
