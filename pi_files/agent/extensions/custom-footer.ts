@@ -337,12 +337,15 @@ export default function (pi: ExtensionAPI) {
 			// Refresh clock every 10 seconds (for the stopwatch timer)
 			const clockTimer = setInterval(() => tui.requestRender(), 10000);
 
+			// Refresh ChatGPT Plus usage every 30 seconds
+			const chatGPTPlusTimer = setInterval(refreshChatGPTPlusPercent, 30000);
 
 			return {
 				dispose() {
 					disposed = true;
 					clearInterval(gitTimer);
 					clearInterval(clockTimer);
+					clearInterval(chatGPTPlusTimer);
 					branchUnsub();
 					timerState.requestRender = () => {};
 					refreshChatGPTPlusPercent = () => {};
