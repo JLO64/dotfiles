@@ -10,23 +10,13 @@
       },
       "models": [
         {
-          "id": "qwen3.5-9b",
-          "name": "Qwen3.5 9B",
+          "id": "qwen3.8-27b-mlx",
+          "name": "Qwen3.8 27B (6Bit)",
           "input": [
             "text",
             "image"
           ],
-          "contextWindow": 12000,
-          "reasoning": true
-        },
-        {
-          "id": "qwen3.6-27b",
-          "name": "Qwen3.6 27B (6Bit)",
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 20000,
+          "contextWindow": 48000,
           "reasoning": true
         },
         {
