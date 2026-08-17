@@ -19,6 +19,16 @@
           "contextWindow": 48000,
           "reasoning": true
         },
+	{
+          "id": "meta/muse-glimmer",
+          "name": "Muse Glimmer",
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 56000,
+          "reasoning": true
+        },
         {
           "id": "google/gemma-4-26b-a4b-qat",
           "name": "Gemma 4 26B A4B QAT",
