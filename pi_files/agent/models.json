@@ -4,22 +4,39 @@
       "baseUrl": "http://127.0.0.1:1234/v1",
       "api": "openai-completions",
       "apiKey": "dummy_key",
+
       "compat": {
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false
+        "supportsDeveloperRole": false
       },
+
       "models": [
         {
           "id": "qwen3.8-27b-mlx",
-          "name": "Qwen3.8 27B (6Bit)",
+          "name": "Qwen3.8 27B (4Bit)",
           "input": [
             "text",
             "image"
           ],
-          "contextWindow": 48000,
-          "reasoning": true
+          "contextWindow": 72000,
+          "reasoning": true,
+
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": null,
+            "xhigh": "xhigh",
+            "max": null
+          },
+
+          "compat": {
+            "supportsReasoningEffort": true,
+            "thinkingFormat": "qwen-chat-template"
+          }
         },
-	{
+
+        {
           "id": "meta/muse-glimmer",
           "name": "Muse Glimmer",
           "input": [
@@ -29,6 +46,7 @@
           "contextWindow": 56000,
           "reasoning": true
         },
+
         {
           "id": "google/gemma-4-26b-a4b-qat",
           "name": "Gemma 4 26B A4B QAT",
@@ -41,9 +59,10 @@
         }
       ]
     },
+
     "opencode-go": {
-    "api": "openai-completions",
-    "baseUrl": "https://opencode.ai/zen/go/v1"
-  }
+      "api": "openai-completions",
+      "baseUrl": "https://opencode.ai/zen/go/v1"
+    }
   }
 }
