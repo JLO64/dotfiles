@@ -1,0 +1,14 @@
+close_remote_on_local_close = false
+
+[hosts.devizumi]
+target = "dev-izumi"
+prefix = "dev"
+#always_control = false
+
+#to restart run the following:
+
+#MIRROR="$HOME/.config/herdr/plugins/github/mirror-00154761637c/target/release/herdr-mirror"
+
+#MIRROR=$HOME/git/herdr-mirror/target/release/herdr-mirror
+#"$MIRROR" teardown
+#"$MIRROR" start

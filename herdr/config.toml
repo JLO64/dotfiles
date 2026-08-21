@@ -1,0 +1,19 @@
+onboarding = false
+[theme]
+name = "rose-pine"
+auto_switch = false
+
+[ui.sound]
+enabled = false
+
+[ui.toast]
+delivery = "system"
+
+[ui]
+show_agent_labels_on_pane_borders = false
+
+agent_panel_sort = "spaces"
+[[keys.command]]
+key = "prefix+shift+b"
+type = "plugin_action"
+command = "mirror.restore"
