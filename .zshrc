@@ -128,8 +128,16 @@ function prompt_time_info {
     (( COLUMNS > 100 )) && print -r -- "%F{239}at%f 󰥔%t"
 }
 
+function prompt_battery_percentage {
+    if [[ "$OSTYPE" == "darwin"* ]] && (( COLUMNS > 100 )); then
+        local battery_percentage
+        battery_percentage=$(pmset -g batt 2>/dev/null | awk -F';' 'NR == 2 && match($1, /[0-9]+%/) { print substr($1, RSTART, RLENGTH); exit }')
+        [[ -n $battery_percentage ]] && print -rn -- "%F{250}(${battery_percentage}%)%f"
+    fi
+}
+
 # Base prompt without the fetch message line
-BASE_PROMPT='╭─%F{40}${DEVICE_INFO} %F{239}in%f $(prompt_location_info)$(git_branch_info) $(prompt_time_info)
+BASE_PROMPT='╭─%F{40}${DEVICE_INFO}$(prompt_battery_percentage) %F{239}in%f $(prompt_location_info)$(git_branch_info) $(prompt_time_info)
 ╰─$(virtualenv_info)○ '
 
 # precmd hook to prepend the git fetch message as the first line of the prompt
