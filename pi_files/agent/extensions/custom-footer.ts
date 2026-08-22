@@ -301,6 +301,8 @@ export default function (pi: ExtensionAPI) {
 					if (disposed) return;
 					chatGPTPlusPercent = percent;
 					tui.requestRender();
+				} catch {
+					// Keep the last known value when the usage endpoint is unavailable.
 				} finally {
 					refreshInFlight = false;
 					if (!disposed && refreshQueued) {
