@@ -233,7 +233,7 @@ function renderSummary(metadata: SummaryMetadata, theme: { fg: (color: any, text
 	return text;
 }
 
-function collapsedStatusIcon(
+function statusIcon(
 	status: "success" | "failure" | "running",
 	theme: { fg: (color: any, text: string) => string },
 ): string {
@@ -269,24 +269,41 @@ function aggregateSummary(
 		mode === "chain"
 			? results.at(-1)?.usage.contextTokens
 			: Math.max(0, ...results.map((result) => result.usage.contextTokens));
-	const hasDurations = results.every((result) => typeof result.durationMs === "number");
-	const durationMs = !hasDurations
-		? undefined
-		: mode === "chain"
-			? results.reduce((total, result) => total + result.durationMs!, 0)
-			: Math.max(...results.map((result) => result.durationMs!));
+	const durations = results.flatMap((result) =>
+		typeof result.durationMs === "number" ? [result.durationMs] : [],
+	);
+	const durationMs =
+		mode === "chain"
+			? durations.length === results.length
+				? durations.reduce((total, duration) => total + duration, 0)
+				: undefined
+			: durations.length > 0
+				? Math.max(...durations)
+				: undefined;
 	const turns = results.reduce((total, result) => total + result.usage.turns, 0);
-	const first = results[0];
+	// Streaming placeholders and in-progress results may not have all metadata yet.
+	// Compare only known metadata so a completed task does not make the aggregate
+	// footer fall back while its peers are still reporting.
+	const metadataResults = results.filter((result) => result.model && result.cwd);
+	const first = metadataResults[0];
+	const gitBranches = new Set(
+		metadataResults.flatMap((result) => (result.gitBranch ? [result.gitBranch] : [])),
+	);
 	const compatible =
-		!!first?.model &&
-		!!first.cwd &&
-		results.every(
-			(result) =>
-				result.model === first.model && result.cwd === first.cwd && result.gitBranch === first.gitBranch,
-		);
+		!!first &&
+		metadataResults.every(
+			(result) => result.model === first.model && result.cwd === first.cwd,
+		) &&
+		gitBranches.size <= 1;
 	if (compatible) {
 		return renderSummary(
-			{ ...first, contextTokens, turns, durationMs },
+			{
+				...first,
+				gitBranch: gitBranches.values().next().value,
+				contextTokens,
+				turns,
+				durationMs,
+			},
 			theme,
 		)!;
 	}
@@ -868,13 +885,7 @@ export default function (pi: ExtensionAPI) {
 				const r = details.results[0];
 				const isRunning = isRunningResult(r);
 				const isError = isFailedResult(r);
-				const icon = expanded
-					? isRunning
-						? theme.fg("warning", "⏳")
-						: isError
-							? theme.fg("error", "✗")
-							: theme.fg("success", "✓")
-					: collapsedStatusIcon(isRunning ? "running" : isError ? "failure" : "success", theme);
+				const icon = statusIcon(isRunning ? "running" : isError ? "failure" : "success", theme);
 				const displayItems = getDisplayItems(r.messages);
 				const finalOutput = getFinalOutput(r.messages);
 
@@ -931,41 +942,18 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (details.mode === "chain") {
-				const successCount = details.results.filter((r) => r.exitCode === 0).length;
-				const isRunning = details.results.some(isRunningResult);
-				const hasFailure = details.results.some(isFailedResult);
-				const icon = expanded
-					? isRunning
-						? theme.fg("warning", "⏳")
-						: hasFailure
-							? theme.fg("error", "✗")
-							: theme.fg("success", "✓")
-					: collapsedStatusIcon(isRunning ? "running" : hasFailure ? "failure" : "success", theme);
-				const totalSteps = details.totalTasks ?? details.results.length;
-
 				if (expanded) {
 					const container = new Container();
-					container.addChild(
-						new Text(
-							icon +
-								" " +
-								theme.fg("toolTitle", theme.bold("chain ")) +
-								theme.fg("accent", `${successCount}/${totalSteps} steps`),
-							0,
-							0,
-						),
-					);
 
-					for (const r of details.results) {
-						const rIcon = isRunningResult(r)
-							? theme.fg("warning", "⏳")
-							: r.exitCode === 0
-								? theme.fg("success", "✓")
-								: theme.fg("error", "✗");
+					for (const [index, r] of details.results.entries()) {
+						const rIcon = statusIcon(
+							isRunningResult(r) ? "running" : r.exitCode === 0 ? "success" : "failure",
+							theme,
+						);
 						const displayItems = getDisplayItems(r.messages);
 						const finalOutput = getFinalOutput(r.messages);
 
-						container.addChild(new Spacer(1));
+						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
 							new Text(
 								`${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${rIcon}`,
@@ -1007,45 +995,39 @@ export default function (pi: ExtensionAPI) {
 					return container;
 				}
 
-				const current = details.results.at(-1)!;
-				const text =
-					theme.fg("text", taskSummary(current.task)) +
-					`\n${icon} ${aggregateSummary(details.results, "chain", theme)}`;
-				return new Text(text, 0, 0);
+				const isRunning = details.results.some(isRunningResult);
+				const hasFailure = details.results.some(isFailedResult);
+				const icon = statusIcon(isRunning ? "running" : hasFailure ? "failure" : "success", theme);
+				const taskLines = details.results
+					.map((r) => {
+						const rIcon = statusIcon(
+							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
+							theme,
+						);
+						return `${theme.fg("accent", r.agent)}${theme.fg("muted", ": ")}${rIcon} ${theme.fg("text", taskSummary(r.task))}`;
+					})
+					.join("\n");
+				return new Text(`${taskLines}\n${icon} ${aggregateSummary(details.results, "chain", theme)}`, 0, 0);
 			}
 
 			if (details.mode === "parallel") {
 				const running = details.results.filter((r) => r.exitCode === -1).length;
-				const successCount = details.results.filter((r) => r.exitCode !== -1 && !isFailedResult(r)).length;
 				const failCount = details.results.filter((r) => r.exitCode !== -1 && isFailedResult(r)).length;
 				const isRunning = running > 0;
-				const icon = expanded
-					? isRunning
-						? theme.fg("warning", "⏳")
-						: failCount > 0
-							? theme.fg("warning", "◐")
-							: theme.fg("success", "✓")
-					: collapsedStatusIcon(isRunning ? "running" : failCount > 0 ? "failure" : "success", theme);
-				const status = isRunning
-					? `${successCount + failCount}/${details.results.length} done, ${running} running`
-					: `${successCount}/${details.results.length} tasks`;
+				const icon = statusIcon(isRunning ? "running" : failCount > 0 ? "failure" : "success", theme);
 
-				if (expanded && !isRunning) {
+				if (expanded) {
 					const container = new Container();
-					container.addChild(
-						new Text(
-							`${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`,
-							0,
-							0,
-						),
-					);
 
-					for (const r of details.results) {
-						const rIcon = isFailedResult(r) ? theme.fg("error", "✗") : theme.fg("success", "✓");
+					for (const [index, r] of details.results.entries()) {
+						const rIcon = statusIcon(
+							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
+							theme,
+						);
 						const displayItems = getDisplayItems(r.messages);
 						const finalOutput = getFinalOutput(r.messages);
 
-						container.addChild(new Spacer(1));
+						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
 							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
 						);
@@ -1083,11 +1065,16 @@ export default function (pi: ExtensionAPI) {
 					return container;
 				}
 
-				const runningResult = details.results.find(isRunningResult);
-				const header = running === 1 && runningResult
-					? theme.fg("text", taskSummary(runningResult.task))
-					: `${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
-				return new Text(`${header}\n${icon} ${aggregateSummary(details.results, "parallel", theme)}`, 0, 0);
+				const taskLines = details.results
+					.map((r) => {
+						const rIcon = statusIcon(
+							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
+							theme,
+						);
+						return `${theme.fg("accent", r.agent)}${theme.fg("muted", ": ")}${rIcon} ${theme.fg("text", taskSummary(r.task))}`;
+					})
+					.join("\n");
+				return new Text(`${taskLines}\n${icon} ${aggregateSummary(details.results, "parallel", theme)}`, 0, 0);
 			}
 
 			const text = result.content[0];
