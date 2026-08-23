@@ -45,7 +45,7 @@ function isPdfFile(path: string): boolean {
 }
 
 function isImageFile(path: string): boolean {
-	return /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i.test(path);
+	return /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(path);
 }
 
 function getImageMimeType(path: string): string {
@@ -57,7 +57,6 @@ function getImageMimeType(path: string): string {
 		case "gif": return "image/gif";
 		case "webp": return "image/webp";
 		case "bmp": return "image/bmp";
-		case "svg": return "image/svg+xml";
 		default: return "image/png";
 	}
 }
