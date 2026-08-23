@@ -76,15 +76,40 @@ Always set `cwd` to the target repository. Use absolute paths or include relevan
 
 ### Preferred Subagent Prompt Format
 
-Include the `Documentation:` line only when the task has relevant reference documents. Documentation paths must be absolute, and subagents must treat those files as read-only.
+Format subagent prompts as Markdown using the sections below. Omit `## Documentation` when the task has no relevant reference documents. Documentation paths must be absolute, and subagents must treat those files as read-only.
 
-- `Task:` concise one-line outcome, preferably no more than 100 characters. Move details and qualifications into `Context:`.
-- `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
-- `Scope:` target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
-- `Documentation:` optional absolute file paths to read-only reference documents.
-- `Constraints:` behavior, interfaces, conventions, or requirements that must be preserved.
-- `Instructions:` specific actions to perform.
-- `Return:` expected output format, including validation results, blockers, risks, and file references.
+- `# Task` — concise one-line outcome, preferably no more than 100 characters. Move details and qualifications into `## Context`.
+- `## Context` — key facts, prior findings, user approvals, and absolute cross-repo paths.
+- `## Scope` — target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
+- `## Documentation` — optional absolute paths to read-only reference documents.
+- `## Constraints` — behavior, interfaces, conventions, or requirements that must be preserved.
+- `## Instructions` — specific actions to perform.
+- `## Return` — expected output format, including validation results, blockers, risks, and file references.
+
+Use this structure:
+
+```markdown
+# Task
+Concise outcome.
+
+## Context
+Relevant facts and approvals.
+
+## Scope
+In-scope paths and non-goals.
+
+## Documentation
+- `/absolute/path/to/reference.md` (read-only)
+
+## Constraints
+- Required behavior to preserve.
+
+## Instructions
+1. Specific action to perform.
+
+## Return
+- Expected results and validation.
+```
 
 Available subagents:
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	compactMarkdownForDisplay,
 	formatContextTokens,
 	formatSummaryStats,
 	formatTurns,
@@ -10,9 +11,16 @@ import {
 } from "../summary.ts";
 
 describe("subagent result summary helpers", () => {
-	test("uses the first task line without the Task: prefix", () => {
+	test("extracts summaries from Markdown and legacy task prompts", () => {
+		expect(taskSummary("# Task\n\nInspect the renderer.\n\n## Context\nUpdate it.")).toBe("Inspect the renderer.");
 		expect(taskSummary("Task: Inspect the renderer\nThen update it.")).toBe("Inspect the renderer");
 		expect(taskSummary("  task: preserve this first line\nAnd ignore this line")).toBe("preserve this first line");
+	});
+
+	test("removes blank lines from Markdown for display only", () => {
+		const prompt = "# Task\n\nInspect the renderer.\n\n## Return\n\n- Findings";
+		expect(compactMarkdownForDisplay(prompt)).toBe("# Task\nInspect the renderer.\n## Return\n- Findings");
+		expect(prompt).toContain("\n\n");
 	});
 
 	test("separates a profile thinking suffix from the model", () => {

@@ -8,8 +8,22 @@ export interface SummaryMetadata {
 }
 
 export function taskSummary(task: string): string {
-	const firstLine = task.split(/\r?\n/, 1)[0].trim();
+	const lines = task.split(/\r?\n/);
+	const taskHeadingIndex = lines.findIndex((line) => /^#\s+Task\s*$/i.test(line.trim()));
+	if (taskHeadingIndex >= 0) {
+		const summary = lines.slice(taskHeadingIndex + 1).find((line) => line.trim().length > 0);
+		if (summary) return summary.trim();
+	}
+
+	const firstLine = lines.find((line) => line.trim().length > 0)?.trim() ?? "";
 	return firstLine.replace(/^Task:\s*/i, "");
+}
+
+export function compactMarkdownForDisplay(markdown: string): string {
+	return markdown
+		.split(/\r?\n/)
+		.filter((line) => line.trim().length > 0)
+		.join("\n");
 }
 
 export function normalizeProfileModel(model?: string): { model?: string; thinking?: string } {

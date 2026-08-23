@@ -31,6 +31,7 @@ import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { buildAgentResourceArgs } from "./resource-config.ts";
 import {
+	compactMarkdownForDisplay,
 	formatContextTokens,
 	formatSummaryStats,
 	formatTurns,
@@ -44,6 +45,12 @@ import {
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
+
+class CompactMarkdown extends Markdown {
+	override render(width: number): string[] {
+		return super.render(width).filter((line) => line.trim().length > 0);
+	}
+}
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -463,7 +470,7 @@ async function runSingleAgent(
 			args.push("--append-system-prompt", tmpPromptPath);
 		}
 
-		args.push(`Task: ${task}`);
+		args.push(task);
 		let wasAborted = false;
 
 		const gitBranch = captureGitBranch(childCwd);
@@ -879,8 +886,8 @@ export default function (pi: ExtensionAPI) {
 					if (isError && r.errorMessage)
 						container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 					container.addChild(new Spacer(1));
-					container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
-					container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
+					container.addChild(new Text(theme.fg("muted", "─── Input ───"), 0, 0));
+					container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
 					container.addChild(new Spacer(1));
 					container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
 					if (displayItems.length === 0 && !finalOutput) {
@@ -898,7 +905,7 @@ export default function (pi: ExtensionAPI) {
 						}
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
+							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 					}
 					const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
@@ -966,7 +973,7 @@ export default function (pi: ExtensionAPI) {
 								0,
 							),
 						);
-						container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
 
 						// Show tool calls
 						for (const item of displayItems) {
@@ -984,7 +991,7 @@ export default function (pi: ExtensionAPI) {
 						// Show final output as markdown
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
+							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
@@ -1042,7 +1049,7 @@ export default function (pi: ExtensionAPI) {
 						container.addChild(
 							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
 						);
-						container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
+						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
 
 						// Show tool calls
 						for (const item of displayItems) {
@@ -1060,7 +1067,7 @@ export default function (pi: ExtensionAPI) {
 						// Show final output as markdown
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
+							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
