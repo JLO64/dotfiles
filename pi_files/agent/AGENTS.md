@@ -78,7 +78,7 @@ Always set `cwd` to the target repository. Use absolute paths or include relevan
 
 Include the `Documentation:` line only when the task has relevant reference documents. Documentation paths must be absolute, and subagents must treat those files as read-only.
 
-- `Task:` short-one-paragraph outcome.
+- `Task:` concise one-line outcome, preferably no more than 100 characters. Move details and qualifications into `Context:`.
 - `Context:` key facts, prior findings, user approvals, and absolute cross-repo paths.
 - `Scope:` target `cwd`, in-scope paths, and out-of-scope paths/non-goals.
 - `Documentation:` optional absolute file paths to read-only reference documents.
