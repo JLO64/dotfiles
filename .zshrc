@@ -103,10 +103,19 @@ function check_git_fetch {
 
         if [[ $should_fetch == true ]]; then
             local start_time=$(date +%s.%N)
-            git fetch --no-tags origin "$(git branch --show-current)" 2>/dev/null
+            # macOS lacks GNU `timeout`; Perl's alarm terminates the fetch after 10 seconds.
+            perl -e 'alarm shift; exec @ARGV' 10 git fetch --no-tags origin "$(git branch --show-current)" 2>/dev/null
+            local fetch_status=$?
             local end_time=$(date +%s.%N)
             local duration=$(echo "$end_time - $start_time" | bc)
-            GIT_FETCH_MESSAGE=$(printf "Ran Git Fetch in %.2fs" $duration)
+
+            if [[ $fetch_status -eq 0 ]]; then
+                GIT_FETCH_MESSAGE=$(printf "Ran Git Fetch in %.2fs" $duration)
+            elif [[ $fetch_status -eq 142 ]]; then
+                GIT_FETCH_MESSAGE="Git fetch timed out after 10s"
+            else
+                GIT_FETCH_MESSAGE="Git fetch failed"
+            fi
         fi
     fi
 }
