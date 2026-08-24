@@ -581,7 +581,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.reason !== "startup" && event.reason !== "new") return;
 
 		dismissed = false;
-		if (ctx.sessionManager.buildContextEntries().length > 0) return;
+		if (ctx.sessionManager.buildSessionContext().messages.length > 0) return;
 
 		const r = discoverResources();
 
