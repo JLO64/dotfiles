@@ -5,6 +5,11 @@
  * its pages are rendered to PNG images. A vision-capable model can then
  * "see" the document. All other file types are read normally.
  *
+ * Pi's installed message and tool-result schemas currently accept only text
+ * and image blocks, so a PDF cannot be represented as OpenAI `input_file`
+ * content end-to-end. Keep transport selection isolated for a future Pi file
+ * block, while using the dependable image fallback today.
+ *
  * Dependency: poppler (`pdftoppm` command)
  *
  *   macOS:   brew install poppler
@@ -69,6 +74,17 @@ async function checkCommand(command: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+type PdfTransport = "page-images" | "unsupported";
+
+/**
+ * Native PDF files require a content block that Pi can serialize to the active
+ * provider. This Pi version exposes only text/image tool-result blocks, so
+ * image-capable models use the page-image fallback regardless of provider.
+ */
+function selectPdfTransport(supportsImages: boolean): PdfTransport {
+	return supportsImages ? "page-images" : "unsupported";
 }
 
 /** Standard text/image read for non-PDF files. */
@@ -159,9 +175,9 @@ async function convertPdfToImages(
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "read",
-		label: "read (PDF → vision)",
+		label: "read (PDF pages → vision)",
 		description:
-			"Read file contents. For PDFs, converts pages to PNG images so vision-capable models can analyze them. For other files, reads text or images normally.",
+			"Read file contents. For PDFs, renders pages to PNG images so vision-capable models can analyze them. For other files, reads text or images normally.",
 		parameters: readSchema,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -184,9 +200,10 @@ export default function (pi: ExtensionAPI) {
 				return { content: result.content, details: result.details };
 			}
 
-			// --- PDF: check model vision support ----------------------------------
+			// --- PDF: select a supported transport --------------------------------
 			const model = ctx.model;
-			if (!model || !model.input.includes("image")) {
+			const pdfTransport = selectPdfTransport(model?.input.includes("image") ?? false);
+			if (pdfTransport === "unsupported") {
 				return {
 					content: [{
 						type: "text",
@@ -237,7 +254,13 @@ export default function (pi: ExtensionAPI) {
 
 				return {
 					content: [{ type: "text", text: summaryText }, ...images],
-					details: { pdf: true, pageCount, imagesRendered: images.length, path: absolutePath },
+					details: {
+						pdf: true,
+						transport: pdfTransport,
+						pageCount,
+						imagesRendered: images.length,
+						path: absolutePath,
+					},
 				};
 			} catch (error: any) {
 				return {
