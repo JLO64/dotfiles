@@ -46,16 +46,35 @@ describe("custom-transcript and pi-vim integration", () => {
 				setHiddenThinkingLabel: () => {},
 			},
 		};
-		let editor: { handleInput: (data: string) => void } | undefined;
+		let editor: { handleInput: (data: string) => void; render: (width: number) => string[] } | undefined;
+		let badge: { render: (width: number) => string[] } | undefined;
+		let widgetCleared = false;
+		let overlayMounts = 0;
 		const vimCtx = {
 			cwd: process.cwd(),
 			ui: {
 				setWorkingVisible: () => {},
 				addAutocompleteProvider: () => {},
-				theme: { fg: (_name: string, text: string) => text },
+				theme: {
+					fg: (_name: string, text: string) => text,
+					inverse: (text: string) => text,
+				},
+				setWidget: (_key: string, widget: any) => {
+					if (!widget) {
+						widgetCleared = true;
+						return;
+					}
+					badge = widget(
+						{ requestRender: () => {} },
+						{
+							fg: (_name: string, text: string) => text,
+							inverse: (text: string) => text,
+						},
+					);
+				},
 				setEditorComponent: (factory: (...args: any[]) => any) => {
 					editor = factory(
-						{ terminal: { rows: 40 }, requestRender: () => {} },
+						{ terminal: { rows: 40 }, requestRender: () => {}, showOverlay: () => { overlayMounts++; } },
 						{ borderColor: (text: string) => text, selectList: {} },
 						{ matches: (data: string, key: string) => key === "app.tools.expand" && data === "configured-expand" },
 					);
@@ -66,14 +85,24 @@ describe("custom-transcript and pi-vim integration", () => {
 		handlers.session_start[0]!({}, transcriptCtx);
 		handlers.session_start[1]!({}, vimCtx);
 		expect(editor).toBeDefined();
+		expect(badge?.render(80)[0]).toBe(`${" ".repeat(65)}╭─COLLAPSED─╮`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(64)}╯${" ".repeat(13)}│`);
 
 		editor!.handleInput("configured-expand");
 		expect(expanded).toBe(true);
+		expect(badge?.render(80)[0]).toBe(`${" ".repeat(66)}╭─EXPANDED─╮`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(65)}╯${" ".repeat(12)}│`);
 		editor!.handleInput("configured-expand");
 		expect([expanded, statuses.at(-1)]).toEqual([false, "focus transcript"]);
+		expect(badge?.render(80)[0]).toBe(`${" ".repeat(67)}╭─FOCUSED─╮`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(66)}╯${" ".repeat(11)}│`);
 		editor!.handleInput("configured-expand");
 		expect([expanded, statuses.at(-1)]).toEqual([false, undefined]);
+		expect(badge?.render(80)[0]).toBe(`${" ".repeat(65)}╭─COLLAPSED─╮`);
 
-		for (const handler of handlers.session_shutdown ?? []) handler({}, {});
+		handlers.session_shutdown[0]!({}, transcriptCtx);
+		handlers.session_shutdown[1]!({}, vimCtx);
+		expect(widgetCleared).toBe(true);
+		expect(overlayMounts).toBe(0);
 	});
 });

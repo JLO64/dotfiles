@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { AssistantMessageComponent, initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import {
+	AssistantMessageComponent,
+	InteractiveMode,
+	initTheme,
+	UserMessageComponent,
+} from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
 import { installTranscriptCompatibility } from "../compatibility.ts";
 
@@ -23,6 +28,38 @@ function withFocus(testCase: (state: { active: boolean }) => void): void {
 		dispose();
 	}
 }
+
+describe("tool-output notice suppression", () => {
+	test("suppresses only exact expansion notices and restores showStatus on disposal", () => {
+		const prototype = InteractiveMode.prototype as unknown as {
+			showStatus: (message: string) => void;
+		};
+		const originalShowStatus = prototype.showStatus;
+		const received: string[] = [];
+		prototype.showStatus = (message: string) => received.push(message);
+
+		const disposeFirst = installTranscriptCompatibility({ active: false });
+		const disposeSecond = installTranscriptCompatibility({ active: false });
+		try {
+			prototype.showStatus.call({} as InteractiveMode, "Tool output: expanded");
+			prototype.showStatus.call({} as InteractiveMode, "Tool output: collapsed");
+			prototype.showStatus.call({} as InteractiveMode, "Tool output: failed");
+			prototype.showStatus.call({} as InteractiveMode, "Thinking level: high");
+			expect(received).toEqual(["Tool output: failed", "Thinking level: high"]);
+
+			disposeSecond();
+			prototype.showStatus.call({} as InteractiveMode, "Tool output: expanded");
+			expect(received).toEqual(["Tool output: failed", "Thinking level: high"]);
+		} finally {
+			disposeFirst();
+		}
+
+		expect(prototype.showStatus).not.toBe(originalShowStatus);
+		prototype.showStatus.call({} as InteractiveMode, "Tool output: expanded");
+		expect(received).toEqual(["Tool output: failed", "Thinking level: high", "Tool output: expanded"]);
+		prototype.showStatus = originalShowStatus;
+	});
+});
 
 describe("focus transcript spacing", () => {
 	test("recognizes a transcript root populated before compatibility installation", () => {

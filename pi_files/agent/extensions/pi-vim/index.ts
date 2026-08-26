@@ -81,6 +81,11 @@ import {
 } from "./zsh-history.js";
 import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
 import { createAgentAndSkillAutocompleteProvider } from "./autocomplete.js";
+import {
+  getRaisedTabLayout,
+  TranscriptModeBadge,
+  type TranscriptMode,
+} from "./transcript-mode-badge.js";
 
 import type {
   Mode,
@@ -215,6 +220,7 @@ export class ModalEditor extends CustomEditor {
     borderColorizers?: ModeColorizers | null,
     historyService?: ZshHistoryService | null,
     private readonly advanceTranscriptCycle?: (advance: boolean) => boolean,
+    private readonly getTranscriptMode?: () => TranscriptMode,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
@@ -3360,7 +3366,12 @@ export class ModalEditor extends CustomEditor {
       ...editorLines.slice(bottomBorderIndex + 1),
     ];
     const borderColorize = this.getModeColorizer(this.borderColorizers);
-    const top = borderColorize(`╭${"─".repeat(innerWidth)}╮`);
+    const tabLayout = this.getTranscriptMode
+      ? getRaisedTabLayout(width, this.getTranscriptMode())
+      : null;
+    const top = tabLayout
+      ? `${borderColorize("╭")}${borderColorize("─".repeat(Math.max(0, tabLayout.tabLeft - 1)))}${borderColorize("╯")}${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}${borderColorize("│")}`
+      : borderColorize(`╭${"─".repeat(innerWidth)}╮`);
     const framedContent = contentLines.map((line) => {
       const safeLine = visibleWidth(line) > innerWidth
         ? truncateToWidth(line, innerWidth, "")
@@ -3372,6 +3383,10 @@ export class ModalEditor extends CustomEditor {
 
     this.syncCursorShape();
     return [top, ...framedContent, bottom];
+  }
+
+  getBorderColorizer(): (s: string) => string {
+    return this.locked ? this.accentColorizer : this.getModeColorizer(this.borderColorizers);
   }
 
   private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
@@ -3453,11 +3468,16 @@ export class ModalEditor extends CustomEditor {
     }
 
     if (width === 1) {
-      return [colorize("╭"), colorize("│"), colorize("╰")];
+      return [colorize("─"), colorize("│"), colorize("─")];
     }
 
     const innerWidth = width - 2;
-    const top = colorize(`╭${"─".repeat(innerWidth)}╮`);
+    const tabLayout = this.getTranscriptMode
+      ? getRaisedTabLayout(width, this.getTranscriptMode())
+      : null;
+    const top = tabLayout
+      ? `${colorize("╭")}${colorize("─".repeat(Math.max(0, tabLayout.tabLeft - 1)))}${colorize("╯")}${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}${colorize("│")}`
+      : colorize(`╭${"─".repeat(innerWidth)}╮`);
     const content = this.renderLockedContentRow(innerWidth, progress, colorize);
     const bottom = this.renderLockedBottomBorder(width, colorize);
 
@@ -3593,14 +3613,26 @@ function replaceAssistantTextBlock(
 
 export default function (pi: ExtensionAPI) {
   const historyService = new ZshHistoryService();
-  let activeTui: { terminal?: { write: (data: string) => void } } | null = null;
+  let activeTui: {
+    terminal?: { write: (data: string) => void };
+  } | null = null;
   let activeEditor: ModalEditor | null = null;
   let pendingQuestions: string | null = null;
   let transcriptCycle: (() => void) | undefined;
+  let transcriptMode: TranscriptMode = "COLLAPSED";
+  let transcriptModeBadge: TranscriptModeBadge | null = null;
   const removeTranscriptCycleListener = (pi as any).events?.on(
     "custom-transcript:cycle",
     (cycle: unknown) => {
       transcriptCycle = typeof cycle === "function" ? cycle as () => void : undefined;
+    },
+  );
+  const removeTranscriptModeListener = (pi as any).events?.on(
+    "custom-transcript:mode",
+    (mode: unknown) => {
+      if (mode !== "COLLAPSED" && mode !== "EXPANDED" && mode !== "FOCUSED") return;
+      transcriptMode = mode;
+      transcriptModeBadge?.setMode(mode);
     },
   );
 
@@ -3614,8 +3646,17 @@ export default function (pi: ExtensionAPI) {
       createAgentAndSkillAutocompleteProvider(current, ctx.cwd, () => pi.getCommands()),
     );
     const appTheme = ctx.ui.theme;
+    ctx.ui.setWidget("pi-vim-transcript-mode", (tui, theme) => {
+      transcriptModeBadge = new TranscriptModeBadge(
+        theme,
+        transcriptMode,
+        () => tui.requestRender(),
+        () => activeEditor?.getBorderColorizer() ?? ((text: string) => theme.fg("accent", text)),
+      );
+      return transcriptModeBadge;
+    });
     ctx.ui.setEditorComponent((tui, theme, kb) => {
-      activeTui = tui as { terminal?: { write: (data: string) => void } };
+      activeTui = tui as typeof activeTui;
       const labelColorizers: ModeColorizers = {
         insert: (s: string) => appTheme.fg("accent", s),
         visual: (s: string) => appTheme.fg("dim", s),
@@ -3638,6 +3679,7 @@ export default function (pi: ExtensionAPI) {
           if (advance) transcriptCycle();
           return true;
         },
+        () => transcriptMode,
       );
       activeEditor = editor;
       return editor;
@@ -3674,8 +3716,11 @@ export default function (pi: ExtensionAPI) {
     historyService.addPiCommand(event.command);
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", (_event, ctx) => {
+    ctx.ui.setWidget("pi-vim-transcript-mode", undefined);
+    transcriptModeBadge = null;
     removeTranscriptCycleListener?.();
+    removeTranscriptModeListener?.();
     transcriptCycle = undefined;
     historyService.dispose();
     activeEditor?.unlock();

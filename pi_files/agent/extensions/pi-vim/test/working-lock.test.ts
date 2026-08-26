@@ -11,6 +11,7 @@ const EXPECTED_FRAME_INTERVAL_MS = 1000 / 30;
 
 function makeEditor(
   keybindings?: { matches: (data: string, key: string) => boolean },
+  transcriptMode?: () => "COLLAPSED" | "EXPANDED" | "FOCUSED",
 ): ModalEditor {
   const tui = {
     terminal: { rows: 40 },
@@ -25,6 +26,11 @@ function makeEditor(
     tui as any,
     theme as any,
     kb as any,
+    null,
+    null,
+    null,
+    undefined,
+    transcriptMode,
   );
   editor.focused = true;
   return editor;
@@ -225,6 +231,19 @@ describe("streaming frame rendering", () => {
     expect(stripped).toMatch(/STREAMING\s*─╯$/);
   });
 
+  test("uses rounded box-drawing edges on every side at normal and narrow widths", () => {
+    const editor = makeEditor();
+    editor.lock();
+
+    for (const width of [4, 8, 50]) {
+      const [top, content, bottom] = editor.render(width).map(stripAnsi);
+      expect(top).toBe(`╭${"─".repeat(width - 2)}╮`);
+      expect(content).toMatch(/^│.*│$/);
+      expect(bottom).toMatch(/^╰.*╯$/);
+      expect(bottom).toContain("─");
+    }
+  });
+
   test("adapts the frame and pill to terminal width", () => {
     const editor = makeEditor();
     editor.lock();
@@ -249,6 +268,7 @@ describe("streaming frame rendering", () => {
         expect(visibleWidth(row)).toBeLessThanOrEqual(width);
       }
     }
+    expect(editor.render(1).map(stripAnsi)).toEqual(["─", "│", "─"]);
   });
 
   test("narrow widths render the longest safe pill prefix inside the frame", () => {
@@ -320,6 +340,53 @@ describe("streaming frame rendering", () => {
 
     expect(countLeadingSpaces(first)).toBe(0);
     expect(countLeadingSpaces(wrapped)).toBe(0);
+  });
+});
+
+describe("modal editor rounded border rendering", () => {
+  test("uses rounded box edges while preserving INSERT, NORMAL, VISUAL, and SHELL labels", () => {
+    const editor = makeEditor();
+    const cases: Array<{ label: string; prepare: () => void }> = [
+      { label: "INSERT", prepare: () => editor.setText("text") },
+      { label: "NORMAL", prepare: () => editor.handleInput("\x1b") },
+      { label: "VISUAL", prepare: () => editor.handleInput("v") },
+      { label: "SHELL", prepare: () => editor.setText("!echo block") },
+    ];
+
+    for (const { label, prepare } of cases) {
+      prepare();
+      for (const width of [4, 9, 50]) {
+        const rendered = editor.render(width).map(stripAnsi);
+        expect(rendered[0]).toBe(`╭${"─".repeat(width - 2)}╮`);
+        expect(rendered.at(-1)).toMatch(/^╰.*╯$/);
+        for (const row of rendered.slice(1, -1)) expect(row).toMatch(/^│.*│$/);
+        if (width === 50) expect(rendered.at(-1)).toContain(label);
+      }
+    }
+  });
+});
+
+describe("raised transcript-tab editor geometry", () => {
+  test("joins all transcript labels to normal and streaming editor top edges across resizes", () => {
+    let mode: "COLLAPSED" | "EXPANDED" | "FOCUSED" = "COLLAPSED";
+    const editor = makeEditor(undefined, () => mode);
+
+    for (const [label, width] of [["COLLAPSED", 50], ["EXPANDED", 51], ["FOCUSED", 52]] as const) {
+      mode = label;
+      const tabWidth = `╭─${label}─╮`.length;
+      const expectedTop = `╭${"─".repeat(width - tabWidth - 1)}╯${" ".repeat(tabWidth - 2)}│`;
+      expect(stripAnsi(editor.render(width)[0]!)).toBe(expectedTop);
+      editor.lock();
+      expect(stripAnsi(editor.render(width)[0]!)).toBe(expectedTop);
+      editor.unlock();
+    }
+  });
+
+  test("falls back to an unbroken rounded top edge when a raised tab cannot fit", () => {
+    const editor = makeEditor(undefined, () => "COLLAPSED");
+    for (const width of [4, 8, 16]) {
+      expect(stripAnsi(editor.render(width)[0]!)).toBe(`╭${"─".repeat(width - 2)}╮`);
+    }
   });
 });
 

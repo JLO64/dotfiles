@@ -49,6 +49,7 @@ function setupExtension() {
         fg: (_name: string, text: string) => text,
       },
       setWorkingVisible: () => {},
+      setWidget: () => {},
       setEditorComponent: (factory: (...args: any[]) => any) => {
         editor = factory(
           { terminal: { rows: 40 }, requestRender: () => {} },
@@ -71,7 +72,11 @@ function setupExtension() {
     mockCtx,
   );
 
-  return { handlers, editor, cleanup: () => handlers["session_shutdown"]?.() };
+  return {
+    handlers,
+    editor,
+    cleanup: () => handlers["session_shutdown"]?.({}, mockCtx),
+  };
 }
 
 describe("session registration", () => {
@@ -86,6 +91,9 @@ describe("session registration", () => {
         },
         setWorkingVisible: (visible: boolean) => {
           events.push(`working:${visible}`);
+        },
+        setWidget: (_key: string, widget: unknown) => {
+          events.push(widget ? "widget" : "widget:clear");
         },
         setEditorComponent: () => {
           events.push("editor");
@@ -108,10 +116,11 @@ describe("session registration", () => {
       mockCtx,
     );
 
-    expect(events).toEqual(["working:false", "editor"]);
+    expect(events).toEqual(["working:false", "widget", "editor"]);
 
     // Clean up the file watcher and other session resources.
-    handlers["session_shutdown"]?.();
+    handlers["session_shutdown"]?.({}, mockCtx);
+    expect(events).toEqual(["working:false", "widget", "editor", "widget:clear"]);
   });
 });
 

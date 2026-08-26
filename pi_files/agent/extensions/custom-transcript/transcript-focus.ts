@@ -7,7 +7,15 @@ import {
 } from "@earendil-works/pi-tui";
 import type { FocusState } from "./types.ts";
 
+export type TranscriptMode = "COLLAPSED" | "EXPANDED" | "FOCUSED";
+
 type TranscriptUI = Pick<ExtensionUIContext, "getToolsExpanded" | "setStatus" | "setToolsExpanded">;
+
+/** Derive the displayed mode from Pi's actual expansion state. */
+export function getTranscriptMode(state: FocusState, ui: Pick<TranscriptUI, "getToolsExpanded">): TranscriptMode {
+	if (state.active) return "FOCUSED";
+	return ui.getToolsExpanded() ? "EXPANDED" : "COLLAPSED";
+}
 type EditorKeybindings = ConstructorParameters<typeof CustomEditor>[2];
 
 /** Advance the cycle from Pi's actual expansion state, not a local index. */

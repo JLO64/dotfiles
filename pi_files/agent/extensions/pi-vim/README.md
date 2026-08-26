@@ -58,10 +58,11 @@ This extension does not change `.zshrc` automatically.
 ## Working scanner and input lock
 
 While the agent is running, the editor is locked and displayed as a framed
-streaming state. The locked output is three rows: a top border, a single inner
-content row containing the accent-colored pill scanner `████████`, and a bottom
-border. The frame and pill are tinted in the streaming truecolor `#ea9a97`
-(RGB 234,154,151), and the bottom-right border label reads `STREAMING`. The pill
+streaming state. The locked output is three rows: a rounded box-drawing (`╭─╮`)
+top border, a single inner content row bounded by `│` sides and containing the
+accent-colored pill scanner `████████`, and a rounded (`╰─╯`) bottom border.
+The frame and pill are tinted in the streaming truecolor `#ea9a97` (RGB
+234,154,151), and the bottom-right border label reads `STREAMING`. The pill
 travels one-way left-to-right across the inner content width over 2.4 seconds,
 then restarts at the left. Because the scanner replaces Pi's built-in working
 indicator, pi-vim hides the built-in `⠇ Working...` row while the extension is
@@ -69,15 +70,28 @@ active.
 
 - All typing, Vim commands, submission, steering, and follow-up input is
   swallowed while the streaming frame is visible.
-- The `app.tools.expand` action (default **Ctrl+O**) is forwarded to allow
-  expanding tool output while the agent is working; the actual key is resolved
-  through the active keybindings, not hard-coded.
+- The `app.tools.expand` action (default **Ctrl+O**) is forwarded to the bundled
+  custom-transcript extension while the agent is working; the actual key is
+  resolved through the active keybindings, not hard-coded.
 - Press **Esc** to abort the running agent, consistent with Pi's existing
   interrupt behavior.
 - When the agent fully settles, the lock is released and the underlying editor
   state is preserved. If the final assistant message contains a valid
   `pi-questions` fenced block with three or more questions, its body is prefilled
   into the editor.
+
+## Transcript mode badge
+
+With the bundled custom-transcript extension active, `app.tools.expand` cycles
+through collapsed, expanded, and focused transcript modes. A non-interactive,
+right-aligned raised tab directly above the prompt editor displays the compact,
+inverted accent pill `COLLAPSED`, `EXPANDED`, or `FOCUSED`, enclosed by
+`╭─` and `─╮`. The editor's rounded top edge joins the tab with `╯`, leaving the
+tab area open above the right border; its side and bottom borders use standard
+`│` and `╰─╯` glyphs. The tab and editor share ANSI/display-width-aware layout
+calculations and hide the tab (while retaining a normal rounded editor frame) on
+terminals too narrow for the connected geometry. The tab does not capture input
+from the editor, dialogs, or selectors.
 
 ## Prefilling questions with `pi-questions`
 

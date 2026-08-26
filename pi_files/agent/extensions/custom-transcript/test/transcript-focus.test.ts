@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { advanceTranscriptCycle } from "../transcript-focus.ts";
+import { advanceTranscriptCycle, getTranscriptMode } from "../transcript-focus.ts";
 
 function createUi(expanded = false) {
 	const statuses: Array<string | undefined> = [];
@@ -38,10 +38,11 @@ describe("transcript cycle", () => {
 		expect([state.active, toolsExpanded()]).toEqual([true, false]);
 	});
 
-	test("normalizes focus with expanded tools to collapsed without focus", () => {
+	test("reports focused even when tools are unexpectedly expanded, then normalizes the cycle", () => {
 		const { ui, statuses, toolsExpanded } = createUi(true);
 		const state = { active: true };
 
+		expect(getTranscriptMode(state, ui)).toBe("FOCUSED");
 		advanceTranscriptCycle(state, ui);
 		expect([state.active, toolsExpanded()]).toEqual([false, false]);
 		expect(statuses).toEqual([undefined]);

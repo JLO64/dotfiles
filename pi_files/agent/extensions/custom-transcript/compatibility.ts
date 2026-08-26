@@ -1,5 +1,6 @@
 import {
 	AssistantMessageComponent,
+	InteractiveMode,
 	ToolExecutionComponent,
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -22,6 +23,50 @@ type ToolInternals = {
 	removeChild?: (component: unknown) => void;
 };
 
+type InteractiveModeInternals = {
+	showStatus?: (message: string) => void;
+};
+
+type ToolOutputNoticePatch = {
+	installs: number;
+	original: (message: string) => void;
+	patched: (message: string) => void;
+};
+
+const toolOutputNoticePatches = new WeakMap<object, ToolOutputNoticePatch>();
+const TOOL_OUTPUT_NOTICES = new Set(["Tool output: expanded", "Tool output: collapsed"]);
+
+/** Suppress only Pi's transient tool-output expansion notices. */
+function installToolOutputNoticeSuppression(): () => void {
+	const prototype = InteractiveMode.prototype as unknown as InteractiveModeInternals;
+	if (typeof prototype.showStatus !== "function") return () => {};
+
+	const existing = toolOutputNoticePatches.get(prototype);
+	if (existing) {
+		existing.installs++;
+		return () => releaseToolOutputNoticeSuppression(prototype, existing);
+	}
+
+	const original = prototype.showStatus;
+	const patched = function (this: InteractiveMode, message: string): void {
+		if (TOOL_OUTPUT_NOTICES.has(message)) return;
+		original.call(this, message);
+	};
+	const patch = { installs: 1, original, patched };
+	toolOutputNoticePatches.set(prototype, patch);
+	prototype.showStatus = patched;
+	return () => releaseToolOutputNoticeSuppression(prototype, patch);
+}
+
+function releaseToolOutputNoticeSuppression(
+	prototype: InteractiveModeInternals,
+	patch: ToolOutputNoticePatch,
+): void {
+	if (--patch.installs > 0) return;
+	if (prototype.showStatus === patch.patched) prototype.showStatus = patch.original;
+	toolOutputNoticePatches.delete(prototype);
+}
+
 /**
  * Isolate Pi implementation coupling here. Every patch is feature-checked and
  * restored on session shutdown; unsupported Pi versions retain stock display.
@@ -35,6 +80,7 @@ export function installTranscriptCompatibility(state: FocusState): () => void {
 	const toolPrototype = ToolExecutionComponent.prototype as unknown as {
 		updateDisplay?: () => void;
 	};
+	const disposeToolOutputNoticeSuppression = installToolOutputNoticeSuppression();
 
 	if (
 		typeof assistantPrototype.updateContent !== "function" ||
@@ -43,7 +89,7 @@ export function installTranscriptCompatibility(state: FocusState): () => void {
 		typeof containerPrototype.render !== "function" ||
 		typeof toolPrototype.updateDisplay !== "function"
 	) {
-		return () => {};
+		return disposeToolOutputNoticeSuppression;
 	}
 
 	const originalUpdateContent = assistantPrototype.updateContent;
@@ -123,5 +169,6 @@ export function installTranscriptCompatibility(state: FocusState): () => void {
 		containerPrototype.addChild = originalAddChild;
 		containerPrototype.render = originalContainerRender;
 		toolPrototype.updateDisplay = originalToolUpdateDisplay;
+		disposeToolOutputNoticeSuppression();
 	};
 }
