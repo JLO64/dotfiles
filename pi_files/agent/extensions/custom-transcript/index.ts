@@ -3,7 +3,7 @@ import { registerCollapsedBuiltinTools } from "./collapsed-tool-output.ts";
 import { registerPdfAwareCollapsedRead } from "./pdf-aware-read.ts";
 import { installTranscriptCompatibility } from "./compatibility.ts";
 import { normalizeAssistantDiffFences } from "./diff-highlighting.ts";
-import { createTranscriptCycleEditor } from "./transcript-focus.ts";
+import { advanceTranscriptCycle } from "./transcript-focus.ts";
 import type { FocusState } from "./types.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -25,10 +25,11 @@ export default function (pi: ExtensionAPI) {
 		disposeCompatibility?.();
 		disposeCompatibility = installTranscriptCompatibility(focus);
 		ctx.ui.setHiddenThinkingLabel("");
-		ctx.ui.setEditorComponent(createTranscriptCycleEditor(focus, ctx.ui));
+		pi.events.emit("custom-transcript:cycle", () => advanceTranscriptCycle(focus, ctx.ui));
 	});
 
 	pi.on("session_shutdown", () => {
+		pi.events.emit("custom-transcript:cycle", undefined);
 		disposeCompatibility?.();
 		disposeCompatibility = undefined;
 	});

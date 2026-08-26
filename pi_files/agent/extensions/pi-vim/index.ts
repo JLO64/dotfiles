@@ -71,6 +71,8 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  isKeyRelease,
+  isKeyRepeat,
 } from "@earendil-works/pi-tui";
 import { wordWrapLine } from "./word-wrap.js";
 import {
@@ -212,6 +214,7 @@ export class ModalEditor extends CustomEditor {
     labelColorizers?: ModeColorizers | null,
     borderColorizers?: ModeColorizers | null,
     historyService?: ZshHistoryService | null,
+    private readonly advanceTranscriptCycle?: (advance: boolean) => boolean,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
@@ -516,10 +519,17 @@ export class ModalEditor extends CustomEditor {
   handleInput(data: string): void {
     this.ensureOnChangeHook();
 
+    const keybindings = (this as unknown as { keybindings?: { matches: (data: string, key: string) => boolean } }).keybindings;
+    if (
+      keybindings?.matches(data, "app.tools.expand")
+      && this.advanceTranscriptCycle?.(!isKeyRelease(data) && !isKeyRepeat(data))
+    ) {
+      return;
+    }
+
     if (this.locked) {
       // While the agent is working, only the abort path and tool-output
       // expansion are allowed through.
-      const keybindings = (this as unknown as { keybindings?: { matches: (data: string, key: string) => boolean } }).keybindings;
       const isInterrupt = this.isEscapeLikeInput(data) || keybindings?.matches(data, "app.interrupt");
       const isExpand = keybindings?.matches(data, "app.tools.expand");
       if (isInterrupt || isExpand) {
@@ -3586,6 +3596,13 @@ export default function (pi: ExtensionAPI) {
   let activeTui: { terminal?: { write: (data: string) => void } } | null = null;
   let activeEditor: ModalEditor | null = null;
   let pendingQuestions: string | null = null;
+  let transcriptCycle: (() => void) | undefined;
+  const removeTranscriptCycleListener = (pi as any).events?.on(
+    "custom-transcript:cycle",
+    (cycle: unknown) => {
+      transcriptCycle = typeof cycle === "function" ? cycle as () => void : undefined;
+    },
+  );
 
   pi.on("session_start", (_event, ctx) => {
     // Hide Pi's built-in working loader row so the custom scanner is the
@@ -3616,6 +3633,11 @@ export default function (pi: ExtensionAPI) {
         labelColorizers,
         borderColorizers,
         historyService,
+        (advance) => {
+          if (!transcriptCycle) return false;
+          if (advance) transcriptCycle();
+          return true;
+        },
       );
       activeEditor = editor;
       return editor;
@@ -3653,6 +3675,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", () => {
+    removeTranscriptCycleListener?.();
+    transcriptCycle = undefined;
     historyService.dispose();
     activeEditor?.unlock();
     activeEditor = null;

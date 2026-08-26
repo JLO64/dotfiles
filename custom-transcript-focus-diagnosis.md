@@ -134,4 +134,8 @@ After implementing the integration:
 
 ## Current Status
 
-The root cause has been identified, but the recommended cross-extension integration has not yet been implemented. The repository currently contains the earlier three-state custom-transcript implementation and transcript-root compatibility fix, along with their unit tests and this diagnosis.
+The cross-extension integration has now been implemented. `custom-transcript` publishes its cycle callback through Pi's shared extension event bus, and `pi-vim`'s active `ModalEditor` invokes that callback when it handles the configured `app.tools.expand` action. The ineffective competing editor installation was removed from `custom-transcript`.
+
+Integration coverage verifies the behavior with both extensions present. The implementation has passed the combined custom-transcript and pi-vim test suites and targeted TypeScript validation, and both extension directories have been synchronized to `~/.pi/agent/extensions/`.
+
+The related collapsed-output issue for the built-in `edit` tool has also been fixed: its call header remains visible while its preview diff is hidden when collapsed and restored when expanded.

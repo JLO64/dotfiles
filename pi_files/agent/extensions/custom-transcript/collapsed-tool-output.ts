@@ -26,16 +26,36 @@ export function emptyCollapsedResult(): Container {
 	return new Container();
 }
 
+type EditCallComponent = {
+	children?: unknown[];
+	clear?: () => void;
+	addChild?: (child: unknown) => void;
+};
+
+/** Keep edit's built-in call state but remove its diff preview below the header. */
+function collapseEditCallPreview(component: unknown): void {
+	const editCall = component as EditCallComponent;
+	const header = editCall.children?.[0];
+	if (!header || !editCall.clear || !editCall.addChild) return;
+	editCall.clear();
+	editCall.addChild(header);
+}
+
 /**
- * Re-register built-in tools with their own execution and call renderers, but
- * no collapsed result component. The original result renderer is delegated to
- * unchanged when Ctrl+O expands the row.
+ * Re-register built-in tools with their own execution and renderers. Collapsed
+ * rows hide results; edit additionally hides its renderCall diff preview while
+ * retaining the header and its renderer-owned preview state for expansion.
  */
 export function withCollapsedResult<TParams extends TSchema, TDetails, TState>(
 	tool: ToolDefinition<TParams, TDetails, TState>,
 ): ToolDefinition<TParams, TDetails, TState> {
 	return {
 		...tool,
+		renderCall(args, theme, context) {
+			const component = tool.renderCall?.(args, theme, context) ?? new Container();
+			if (tool.name === "edit" && !context.expanded) collapseEditCallPreview(component);
+			return component;
+		},
 		renderResult(result, options, theme, context) {
 			if (!options.expanded) return emptyCollapsedResult();
 			return tool.renderResult?.(result, options, theme, context) ?? emptyCollapsedResult();
