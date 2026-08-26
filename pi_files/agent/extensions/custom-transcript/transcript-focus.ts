@@ -1,48 +1,62 @@
-import { matchesKey } from "@earendil-works/pi-tui";
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import {
+	isKeyRelease,
+	isKeyRepeat,
+	type EditorTheme,
+	type TUI,
+} from "@earendil-works/pi-tui";
 import type { FocusState } from "./types.ts";
 
-const CTRL_H = "\x08";
+type TranscriptUI = Pick<ExtensionUIContext, "getToolsExpanded" | "setStatus" | "setToolsExpanded">;
+type EditorKeybindings = ConstructorParameters<typeof CustomEditor>[2];
 
-/**
- * Ghostty can send multiple indistinguishable enhanced reports for one key
- * action. Suppress matching reports within this short window without timers.
- */
-export const CTRL_H_DEBOUNCE_MS = 200;
+/** Advance the cycle from Pi's actual expansion state, not a local index. */
+export function advanceTranscriptCycle(state: FocusState, ui: TranscriptUI): void {
+	const toolsExpanded = ui.getToolsExpanded();
 
-/**
- * Ctrl+H and Backspace are both \x08 in legacy terminals. Only enhanced
- * keyboard reports are distinguishable, so legacy \x08 is deliberately left
- * alone to avoid consuming ordinary Backspace.
- */
-export function isDistinguishableCtrlH(data: string): boolean {
-	return data !== CTRL_H && matchesKey(data, "ctrl+h");
-}
+	if (state.active && toolsExpanded) {
+		// This combination is outside the cycle; normalize to its first state.
+		state.active = false;
+		ui.setToolsExpanded(false);
+	} else if (state.active) {
+		state.active = false;
+		ui.setToolsExpanded(false);
+	} else if (toolsExpanded) {
+		state.active = true;
+		ui.setToolsExpanded(false);
+	} else {
+		state.active = false;
+		ui.setToolsExpanded(true);
+	}
 
-export function toggleFocus(state: FocusState, ui: Pick<ExtensionUIContext, "setStatus">): void {
-	state.active = !state.active;
 	ui.setStatus("custom-transcript-focus", state.active ? "focus transcript" : undefined);
 }
 
-export function installFocusShortcut(
-	ui: Pick<ExtensionUIContext, "onTerminalInput" | "setStatus">,
-	state: FocusState,
-	onToggle: () => void,
-	now: () => number = () => performance.now(),
-): () => void {
-	let lastToggleAt = -Infinity;
+class TranscriptCycleEditor extends CustomEditor {
+	constructor(
+		tui: TUI,
+		theme: EditorTheme,
+		private readonly cycleKeybindings: EditorKeybindings,
+		private readonly focusState: FocusState,
+		private readonly ui: TranscriptUI,
+	) {
+		super(tui, theme, cycleKeybindings);
+	}
 
-	return ui.onTerminalInput((data) => {
-		if (!isDistinguishableCtrlH(data)) return;
-
-		const timestamp = now();
-		if (timestamp - lastToggleAt >= CTRL_H_DEBOUNCE_MS) {
-			lastToggleAt = timestamp;
-			toggleFocus(state, ui);
-			onToggle();
+	override handleInput(data: string): void {
+		if (this.cycleKeybindings.matches(data, "app.tools.expand")) {
+			if (!isKeyRelease(data) && !isKeyRepeat(data)) {
+				advanceTranscriptCycle(this.focusState, this.ui);
+			}
+			return;
 		}
 
-		// Consume both the accepted event and suppressed enhanced duplicates.
-		return { consume: true };
-	});
+		super.handleInput(data);
+	}
+}
+
+/** Build a main-editor wrapper so selectors and modal views keep their own bindings. */
+export function createTranscriptCycleEditor(state: FocusState, ui: TranscriptUI) {
+	return (tui: TUI, theme: EditorTheme, keybindings: EditorKeybindings) =>
+		new TranscriptCycleEditor(tui, theme, keybindings, state, ui);
 }

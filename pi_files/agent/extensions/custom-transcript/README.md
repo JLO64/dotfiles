@@ -3,13 +3,9 @@
 Display-only transcript refinements for Pi.
 
 - Normalizes indented `diff` fence markers in assistant output, including streaming and restored messages.
-- Collapsed built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` rows show only their call/header. `Ctrl+O` (or the configured `app.tools.expand` binding) restores the full result.
+- Collapsed built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` rows show only their call/header.
+- The configured `app.tools.expand` binding cycles the transcript through: tools collapsed with focus off, tools expanded with focus off, then tools collapsed with focus on. Focus shows only user chat messages and assistant text; it is ephemeral and does not change session history or model context.
 - Removes the hidden-thinking label and its whitespace when Pi's **Hide thinking blocks** setting is enabled. Visible thinking is unchanged.
-- `Ctrl+H` enables focus mode, showing only user chat messages and assistant text. It is ephemeral and does not change session history or model context.
-
-## Ctrl+H terminal caveat
-
-Legacy terminals encode both Ctrl+H and Backspace as `0x08`. To avoid breaking ordinary Backspace, this extension only toggles focus when the terminal sends a distinguishable enhanced keyboard event. Configure an enhanced keyboard protocol (for example Kitty keyboard protocol) if Ctrl+H does nothing.
 
 ## Compatibility
 

@@ -54,6 +54,11 @@ export function installTranscriptCompatibility(state: FocusState): () => void {
 	const sourceMessages = new WeakMap<object, any>();
 	const suppressing = new WeakMap<object, boolean>();
 	const transcriptRoots = new WeakSet<object>();
+	const hasTranscriptMessage = (container: Container): boolean =>
+		container.children.some(
+			(child: unknown) =>
+				child instanceof AssistantMessageComponent || child instanceof UserMessageComponent,
+		);
 
 	assistantPrototype.updateContent = function (message: any, isStreaming?: boolean): void {
 		const internals = this as unknown as AssistantInternals;
@@ -85,6 +90,7 @@ export function installTranscriptCompatibility(state: FocusState): () => void {
 	};
 
 	containerPrototype.render = function (width: number): string[] {
+		if (!transcriptRoots.has(this) && hasTranscriptMessage(this)) transcriptRoots.add(this);
 		if (!state.active || !transcriptRoots.has(this)) return originalContainerRender.call(this, width);
 		const children = this.children.filter(
 			(child: unknown) => child instanceof AssistantMessageComponent || child instanceof UserMessageComponent,

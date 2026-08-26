@@ -25,6 +25,24 @@ function withFocus(testCase: (state: { active: boolean }) => void): void {
 }
 
 describe("focus transcript spacing", () => {
+	test("recognizes a transcript root populated before compatibility installation", () => {
+		const root = new Container();
+		const prior = assistant("prior response");
+		const hidden = { invalidate: () => {}, render: () => ["hidden transcript content"] };
+		const next = user("next request");
+		root.addChild(prior);
+		root.addChild(hidden);
+		root.addChild(next);
+
+		const state = { active: true };
+		const dispose = installTranscriptCompatibility(state);
+		try {
+			expect(root.render(WIDTH)).toEqual([...prior.render(WIDTH), "", ...next.render(WIDTH)]);
+		} finally {
+			dispose();
+		}
+	});
+
 	test("inserts one separator between an assistant message and a user message", () => {
 		withFocus((state) => {
 			const root = new Container();

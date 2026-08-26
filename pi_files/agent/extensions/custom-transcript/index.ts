@@ -3,7 +3,7 @@ import { registerCollapsedBuiltinTools } from "./collapsed-tool-output.ts";
 import { registerPdfAwareCollapsedRead } from "./pdf-aware-read.ts";
 import { installTranscriptCompatibility } from "./compatibility.ts";
 import { normalizeAssistantDiffFences } from "./diff-highlighting.ts";
-import { installFocusShortcut } from "./transcript-focus.ts";
+import { createTranscriptCycleEditor } from "./transcript-focus.ts";
 import type { FocusState } from "./types.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -15,7 +15,6 @@ export default function (pi: ExtensionAPI) {
 	);
 
 	let disposeCompatibility: (() => void) | undefined;
-	let disposeFocusShortcut: (() => void) | undefined;
 	const focus: FocusState = { active: false };
 
 	pi.on("session_start", (_event, ctx) => {
@@ -24,17 +23,12 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") return;
 
 		disposeCompatibility?.();
-		disposeFocusShortcut?.();
 		disposeCompatibility = installTranscriptCompatibility(focus);
 		ctx.ui.setHiddenThinkingLabel("");
-		disposeFocusShortcut = installFocusShortcut(ctx.ui, focus, () => {
-			// setStatus requests a render through Pi's public UI adapter.
-		});
+		ctx.ui.setEditorComponent(createTranscriptCycleEditor(focus, ctx.ui));
 	});
 
 	pi.on("session_shutdown", () => {
-		disposeFocusShortcut?.();
-		disposeFocusShortcut = undefined;
 		disposeCompatibility?.();
 		disposeCompatibility = undefined;
 	});
