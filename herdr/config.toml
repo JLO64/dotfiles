@@ -13,6 +13,13 @@ delivery = "system"
 show_agent_labels_on_pane_borders = false
 
 agent_panel_sort = "spaces"
+
+[keys]
+navigate_workspace_up = "k"
+navigate_workspace_down = "j"
+navigate_pane_down = "ctrl+j"
+navigate_pane_up = "ctrl+k"
+
 [[keys.command]]
 key = "prefix+shift+b"
 type = "plugin_action"
