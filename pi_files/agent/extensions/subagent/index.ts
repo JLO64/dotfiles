@@ -336,15 +336,12 @@ function renderFooter(
 	return `${icon} ${theme.fg("dim", usageText || "running...")}`;
 }
 
-function aggregateSummary(
+export function aggregateSummary(
 	results: SingleResult[],
 	mode: "chain" | "parallel",
 	theme: { fg: (color: any, text: string) => string },
 ): string {
-	const contextTokens =
-		mode === "chain"
-			? results.at(-1)?.usage.contextTokens
-			: Math.max(0, ...results.map((result) => result.usage.contextTokens));
+	const contextTokens = results.reduce((total, result) => total + result.usage.contextTokens, 0);
 	const durations = results.flatMap((result) =>
 		typeof result.durationMs === "number" ? [result.durationMs] : [],
 	);
