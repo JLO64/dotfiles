@@ -13,6 +13,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -214,6 +215,81 @@ function getResultOutput(result: SingleResult): string {
 		return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
 	}
 	return getFinalOutput(result.messages) || "(no output)";
+}
+
+function markdownCodeBlock(value: string): string {
+	const longestFence = Math.max(0, ...(value.match(/~+/g) ?? []).map((run) => run.length));
+	const fence = "~".repeat(Math.max(3, longestFence + 1));
+	return `${fence}\n${value}\n${fence}`;
+}
+
+function formatFailureReport(result: SingleResult, diagnostic: string): string {
+	const metadata = JSON.stringify(
+		Object.fromEntries(
+			[
+				["agent", result.agent],
+				["agentSource", result.agentSource],
+				["step", result.step],
+				["model", result.model],
+				["cwd", result.cwd],
+				["gitBranch", result.gitBranch],
+				["stopReason", result.stopReason],
+				["exitCode", result.exitCode],
+				["durationMs", result.durationMs],
+			].filter(([, value]) => value !== undefined),
+		),
+		null,
+		2,
+	);
+	const usage = JSON.stringify(result.usage, null, 2);
+	const messages = JSON.stringify(result.messages, null, 2);
+
+	return [
+		"# Subagent failure report",
+		"",
+		"## Metadata",
+		markdownCodeBlock(metadata),
+		"",
+		"## Task",
+		markdownCodeBlock(result.task),
+		"",
+		"## Final diagnostic",
+		markdownCodeBlock(diagnostic),
+		"",
+		"## Completed assistant messages and tool results",
+		markdownCodeBlock(messages),
+		"",
+		"## Standard error",
+		markdownCodeBlock(result.stderr),
+		"",
+		"## Usage",
+		markdownCodeBlock(usage),
+		"",
+	].join("\n");
+}
+
+export async function writeFailureReport(result: SingleResult, diagnostic: string): Promise<string | undefined> {
+	try {
+		const reportDir = path.join(os.tmpdir(), "pi-subagent-failures");
+		await fs.promises.mkdir(reportDir, { recursive: true, mode: 0o700 });
+		const safeAgentName = result.agent.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) || "agent";
+		const reportPath = path.join(reportDir, `${safeAgentName}-${Date.now()}-${randomUUID()}.md`);
+		await fs.promises.writeFile(reportPath, formatFailureReport(result, diagnostic), {
+			encoding: "utf-8",
+			mode: 0o600,
+			flag: "wx",
+		});
+		return reportPath;
+	} catch {
+		return undefined;
+	}
+}
+
+async function failureReportNote(result: SingleResult, diagnostic: string): Promise<string> {
+	const reportPath = await writeFailureReport(result, diagnostic);
+	return reportPath
+		? `Failure report saved to ${reportPath}.`
+		: "Failure report could not be written.";
 }
 
 function renderSummary(metadata: SummaryMetadata, theme: { fg: (color: any, text: string) => string }): string | undefined {
@@ -567,8 +643,9 @@ async function runSingleAgent(
 				resolve(code ?? 0);
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (error) => {
 				stopElapsedTimer();
+				currentResult.stderr += `${error.message}\n`;
 				resolve(1);
 			});
 
@@ -589,7 +666,10 @@ async function runSingleAgent(
 		currentResult.exitCode = exitCode;
 		currentResult.durationMs = Date.now() - startedAt;
 		currentResult.gitBranch = await gitBranch;
-		if (wasAborted) throw new Error("Subagent was aborted");
+		if (wasAborted) {
+			currentResult.stopReason = "aborted";
+			currentResult.errorMessage = "Subagent was aborted";
+		}
 		return currentResult;
 	} finally {
 		if (tmpPromptPath)
@@ -717,8 +797,11 @@ export default function (pi: ExtensionAPI) {
 					const isError = isFailedResult(result);
 					if (isError) {
 						const errorMsg = getResultOutput(result);
+						const reportNote = await failureReportNote(result, errorMsg);
 						return {
-							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}` }],
+							content: [
+								{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}\n\n${reportNote}` },
+							],
 							details: makeDetails("chain")(results),
 							isError: true,
 						};
@@ -796,13 +879,17 @@ export default function (pi: ExtensionAPI) {
 				});
 
 				const successCount = results.filter((r) => !isFailedResult(r)).length;
-				const summaries = results.map((r) => {
-					const output = truncateParallelOutput(getResultOutput(r));
-					const status = isFailedResult(r)
-						? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
-						: "completed";
-					return `### [${r.agent}] ${status}\n\n${output}`;
-				});
+				const summaries = await Promise.all(
+					results.map(async (r) => {
+						const output = truncateParallelOutput(getResultOutput(r));
+						const failed = isFailedResult(r);
+						const status = failed
+							? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
+							: "completed";
+						const reportNote = failed ? `\n\n${await failureReportNote(r, getResultOutput(r))}` : "";
+						return `### [${r.agent}] ${status}\n\n${output}${reportNote}`;
+					}),
+				);
 				return {
 					content: [
 						{
@@ -829,8 +916,9 @@ export default function (pi: ExtensionAPI) {
 				const isError = isFailedResult(result);
 				if (isError) {
 					const errorMsg = getResultOutput(result);
+					const reportNote = await failureReportNote(result, errorMsg);
 					return {
-						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}` }],
+						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}\n\n${reportNote}` }],
 						details: makeDetails("single")([result]),
 						isError: true,
 					};
