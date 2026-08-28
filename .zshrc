@@ -139,9 +139,16 @@ function prompt_time_info {
 
 function prompt_battery_percentage {
     if [[ "$OSTYPE" == "darwin"* ]] && (( COLUMNS > 100 )); then
-        local battery_percentage
-        battery_percentage=$(pmset -g batt 2>/dev/null | awk -F';' 'NR == 2 && match($1, /[0-9]+%/) { print substr($1, RSTART, RLENGTH); exit }')
-        [[ -n $battery_percentage ]] && print -rn -- "%F{250}(${battery_percentage}%)%f"
+        local battery_status battery_percentage
+        battery_status=$(pmset -g batt 2>/dev/null)
+        battery_percentage=$(print -r -- "$battery_status" | awk -F';' 'NR == 2 && match($1, /[0-9]+%/) { print substr($1, RSTART, RLENGTH); exit }')
+        [[ -z $battery_percentage ]] && return
+
+        if [[ "$battery_status" == *"'AC Power'"* ]]; then
+            print -rn -- "%F{250}(󰚥${battery_percentage}%)%f"
+        else
+            print -rn -- "%F{250}(${battery_percentage}%)%f"
+        fi
     fi
 }
 
