@@ -61,13 +61,10 @@ While the agent is running, the editor is locked and displayed as a three-row
 Matrix-style streaming textbox: a rounded top border, one full-width interior
 row of changing letters, digits, and symbols, and a rounded bottom border. The
 bottom border keeps `STREAMING` right-aligned when the terminal is at least 15
-columns wide. Every 100 ms, the entire textbox and the `COLLAPSED` transcript
-pill share the same new color and Matrix characters; the pill remains fixed in
-its normal position. Colors are deterministic hue variants of base `#c4a7e7`: they retain its
-derived saturation (about 28%) at 100% HSV value while varying the hue from
-230° through 320°, matching the keyboard's generated range while keeping the
-animation legible. Because this replaces
-Pi's built-in working indicator, pi-vim hides the built-in `⠇ Working...` row
+columns wide. Every 100 ms, the Matrix characters change while the entire textbox and the
+`COLLAPSED` transcript pill retain the fixed `#f3baf0` color; the pill remains
+fixed in its normal position. Because this replaces Pi's built-in working
+indicator, pi-vim hides the built-in `⠇ Working...` row
 while the extension is active.
 
 - All typing, Vim commands, submission, steering, and follow-up input is

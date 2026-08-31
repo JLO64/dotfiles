@@ -43,15 +43,6 @@ function getStreamingRgb(row: string): [number, number, number] {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-function rgbToHsv([r, g, b]: [number, number, number]): [number, number, number] {
-  const [red, green, blue] = [r, g, b].map((channel) => channel / 255);
-  const value = Math.max(red, green, blue);
-  const chroma = value - Math.min(red, green, blue);
-  const hue = chroma === 0 ? 0 : 60 * (((blue === value ? (red - green) / chroma + 4
-    : green === value ? (blue - red) / chroma + 2 : (green - blue) / chroma) + 6) % 6);
-  return [hue, chroma === 0 ? 0 : chroma / value * 100, value * 100];
-}
-
 describe("input lock", () => {
   test("starts locked and swallows printable input", () => {
     const editor = makeEditor();
@@ -186,36 +177,24 @@ describe("streaming frame rendering", () => {
     expect(stripAnsi(rendered[2]!)).toMatch(/^╰.* STREAMING ─╯$/);
   });
 
-  test("uses one synchronized full-brightness hue from 230°–320° for every textbox element", () => {
+  test("uses fixed #f3baf0 for every textbox element in every frame", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
     editor.lock();
 
-    const colors = new Set<string>();
-    const hues: number[] = [];
     for (let frame = 0; frame < 1_000; frame++) {
       now = frame * EXPECTED_FRAME_INTERVAL_MS;
       const rendered = editor.render(50);
       const frameColors = rendered.flatMap((row) =>
         [...row.matchAll(/\x1b\[38;2;\d+;\d+;\d+m/g)].map((match) => match[0]),
       );
-      expect(new Set(frameColors).size).toBe(1);
-      colors.add(frameColors[0]!);
-
-      const [hue, saturation, value] = rgbToHsv(getStreamingRgb(rendered[0]!));
-      hues.push(hue);
-      expect(value).toBe(100);
-      expect(saturation).toBeCloseTo(64 / 231 * 100, 0);
-      expect(hue).toBeGreaterThanOrEqual(229.5);
-      expect(hue).toBeLessThanOrEqual(320.5);
+      expect(new Set(frameColors)).toEqual(new Set(["\x1b[38;2;243;186;240m"]));
+      expect(getStreamingRgb(rendered[0]!)).toEqual([243, 186, 240]);
     }
-    expect(Math.min(...hues)).toBeLessThanOrEqual(230.5);
-    expect(Math.max(...hues)).toBeGreaterThanOrEqual(319.5);
-    expect(colors.size).toBeGreaterThan(1);
   });
 
-  test("changes its shared shade and Matrix characters every 100ms", () => {
+  test("changes Matrix characters every 100ms while retaining its fixed color", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
@@ -227,7 +206,8 @@ describe("streaming frame rendering", () => {
     now = 100;
     const next = editor.render(50);
     expect(next).not.toEqual(first);
-    expect(getStreamingRgb(next[0]!)).not.toEqual(getStreamingRgb(first[0]!));
+    expect(getStreamingRgb(next[0]!)).toEqual(getStreamingRgb(first[0]!));
+    expect(stripAnsi(next[1]!)).not.toEqual(stripAnsi(first[1]!));
     const characters = stripAnsi(next[1]!).slice(1, -1);
     expect([...characters].every((char) => MATRIX_CHARACTERS.includes(char))).toBe(true);
   });

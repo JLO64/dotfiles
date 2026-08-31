@@ -133,15 +133,7 @@ const MAX_COUNT = 9999;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
 const STREAMING_FRAME_INTERVAL_MS = 100;
 const STREAMING_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>?/\\|[]{}()";
-const STREAMING_BASE_RGB = [196, 167, 231] as const;
-const STREAMING_BASE_VALUE = Math.max(...STREAMING_BASE_RGB);
-const STREAMING_BASE_CHROMA = STREAMING_BASE_VALUE - Math.min(...STREAMING_BASE_RGB);
-const STREAMING_BASE_HUE = 60 * (
-  (STREAMING_BASE_RGB[0] - STREAMING_BASE_RGB[1]) / STREAMING_BASE_CHROMA + 4
-);
-const STREAMING_BASE_SATURATION = STREAMING_BASE_CHROMA / STREAMING_BASE_VALUE * 100;
-const STREAMING_HUE_MIN_DEGREES = 230;
-const STREAMING_HUE_MAX_DEGREES = 320;
+const STREAMING_COLOR_START = "\x1b[38;2;243;186;240m";
 const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
 const STYLE_RESET = "\x1b[0m";
@@ -214,7 +206,6 @@ export class ModalEditor extends CustomEditor {
   private lockTimer: ReturnType<typeof setInterval> | null = null;
   private lockStartTime: number = 0;
   private streamingFrame: StreamingFrame = { index: 0, seed: 12345 };
-  private accentColorizerOverride: ((s: string) => string) | null = null;
   private nowFn: () => number = Date.now;
 
   // Unnamed register
@@ -252,7 +243,6 @@ export class ModalEditor extends CustomEditor {
   getText(): string { return this.getLines().join("\n"); }
   getGhostSuffix(): string | null { return this.getEligibleGhostSuffix(); }
   setNowFn(fn: () => number): void { this.nowFn = fn; }
-  setAccentColorizer(fn: (s: string) => string): void { this.accentColorizerOverride = fn; }
   isLocked(): boolean { return this.locked; }
   lock(): void {
     this.stopLockTimer();
@@ -3401,9 +3391,11 @@ export class ModalEditor extends CustomEditor {
   }
 
   getBorderColorizer(): (s: string) => string {
-    return this.locked
-      ? this.getStreamingColorizer(this.refreshStreamingFrame())
-      : this.getModeColorizer(this.borderColorizers);
+    if (this.locked) {
+      this.refreshStreamingFrame();
+      return this.getStreamingColorizer();
+    }
+    return this.getModeColorizer(this.borderColorizers);
   }
 
   private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
@@ -3497,39 +3489,15 @@ export class ModalEditor extends CustomEditor {
     return (Math.imul(seed, 1664525) + 1013904223) >>> 0;
   }
 
-  private getStreamingColorizer(frame: StreamingFrame): (s: string) => string {
-    if (this.accentColorizerOverride) return this.accentColorizerOverride;
-    // Select a deterministic pseudo-random hue across the keyboard's 230°–320°
-    // range while retaining #c4a7e7's saturation and a full 100% HSV value.
-    const hue = STREAMING_HUE_MIN_DEGREES + (frame.seed >>> 16)
-      % (STREAMING_HUE_MAX_DEGREES - STREAMING_HUE_MIN_DEGREES + 1);
-    const [r, g, b] = this.hsvToRgb(
-      hue,
-      STREAMING_BASE_SATURATION,
-      100,
-    );
-    const color = `\x1b[38;2;${r};${g};${b}m`;
-    return (text: string) => `${color}${text}${FOREGROUND_RESET}`;
-  }
-
-  private hsvToRgb(hue: number, saturation: number, value: number): [number, number, number] {
-    const chroma = value / 100 * saturation / 100;
-    const hueSegment = ((hue % 360) + 360) % 360 / 60;
-    const secondary = chroma * (1 - Math.abs(hueSegment % 2 - 1));
-    const [red, green, blue] = hueSegment < 1 ? [chroma, secondary, 0]
-      : hueSegment < 2 ? [secondary, chroma, 0]
-      : hueSegment < 3 ? [0, chroma, secondary]
-      : hueSegment < 4 ? [0, secondary, chroma]
-      : hueSegment < 5 ? [secondary, 0, chroma]
-      : [chroma, 0, secondary];
-    const match = value / 100 - chroma;
-    return [red, green, blue].map((channel) => Math.round((channel + match) * 255)) as [number, number, number];
+  private getStreamingColorizer(): (s: string) => string {
+    return (text: string) => `${STREAMING_COLOR_START}${text}${FOREGROUND_RESET}`;
   }
 
   private renderLocked(width: number): string[] {
     if (width <= 0) return [""];
 
-    const colorize = this.getStreamingColorizer(this.refreshStreamingFrame());
+    this.refreshStreamingFrame();
+    const colorize = this.getStreamingColorizer();
     if (width === 1) return [colorize("╳")];
 
     const innerWidth = width - 2;

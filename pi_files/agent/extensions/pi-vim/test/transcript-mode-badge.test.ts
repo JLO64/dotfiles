@@ -70,7 +70,7 @@ describe("transcript mode badge", () => {
     const streamingLine = badge.render(24)[0]!;
     const pillColor = streamingLine.match(/\x1b\[38;2;\d+;\d+;\d+m/)?.[0];
     const textboxColor = editor.render(24)[0]!.match(/\x1b\[38;2;\d+;\d+;\d+m/)?.[0];
-    expect(pillColor).toBeDefined();
+    expect(pillColor).toBe("\x1b[38;2;243;186;240m");
     expect(textboxColor).toBe(pillColor);
     expect(streamingLine).toContain(`${pillColor}\x1b[39m`);
     editor.unlock();
