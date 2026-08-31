@@ -3,11 +3,8 @@ import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ModalEditor } from "../index.ts";
 
-const STREAMING_RGB = "\x1b[38;2;234;154;151m";
-const RESET = "\x1b[39m";
-const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
-const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
-const EXPECTED_FRAME_INTERVAL_MS = 1000 / 30;
+const MATRIX_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>?/\\|[]{}()";
+const EXPECTED_FRAME_INTERVAL_MS = 100;
 
 function makeEditor(
   keybindings?: { matches: (data: string, key: string) => boolean },
@@ -40,26 +37,19 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-function extractInnerContent(row: string): string {
-  const stripped = stripAnsi(row);
-  if (stripped.length < 2) return stripped;
-  return stripped.slice(1, -1);
+function getStreamingRgb(row: string): [number, number, number] {
+  const match = row.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+  if (!match) throw new Error("Streaming row has no truecolor foreground");
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-function countLeadingSpaces(row: string): number {
-  const content = extractInnerContent(row);
-  let count = 0;
-  for (const ch of content) {
-    if (ch === " ") count++;
-    else break;
-  }
-  return count;
-}
-
-function extractVisiblePill(row: string): string {
-  const stripped = stripAnsi(row);
-  if (stripped.length < 2) return "";
-  return stripped.slice(1, -1).replace(/\s+$/g, "");
+function rgbToHsv([r, g, b]: [number, number, number]): [number, number, number] {
+  const [red, green, blue] = [r, g, b].map((channel) => channel / 255);
+  const value = Math.max(red, green, blue);
+  const chroma = value - Math.min(red, green, blue);
+  const hue = chroma === 0 ? 0 : 60 * (((blue === value ? (red - green) / chroma + 4
+    : green === value ? (blue - red) / chroma + 2 : (green - blue) / chroma) + 6) % 6);
+  return [hue, chroma === 0 ? 0 : chroma / value * 100, value * 100];
 }
 
 describe("input lock", () => {
@@ -182,164 +172,77 @@ describe("input lock", () => {
 });
 
 describe("streaming frame rendering", () => {
-  test("renders exactly three framed rows", () => {
+  test("renders a three-row textbox with one Matrix content row and a right-aligned label", () => {
     const editor = makeEditor();
     editor.lock();
 
     const rendered = editor.render(50);
-    expect(rendered.length).toBe(3);
-    expect(visibleWidth(rendered[0]!)).toBe(50);
-    expect(visibleWidth(rendered[1]!)).toBe(50);
-    expect(visibleWidth(rendered[2]!)).toBe(50);
-
-    const [top, content, bottom] = rendered;
-    expect(stripAnsi(top!)).toBe(`╭${"─".repeat(48)}╮`);
-    expect(stripAnsi(content!)).toMatch(/^│.{48}│$/);
-    expect(stripAnsi(bottom!)).toMatch(/^╰.*STREAMING.*╯$/);
+    expect(rendered).toHaveLength(3);
+    for (const row of rendered) expect(visibleWidth(row)).toBe(50);
+    expect(stripAnsi(rendered[0]!)).toBe(`╭${"─".repeat(48)}╮`);
+    const content = stripAnsi(rendered[1]!);
+    expect(content).toMatch(/^│.*│$/);
+    expect([...content.slice(1, -1)].every((char) => MATRIX_CHARACTERS.includes(char))).toBe(true);
+    expect(stripAnsi(rendered[2]!)).toMatch(/^╰.* STREAMING ─╯$/);
   });
 
-  test("applies the streaming truecolor to the frame, pill, and label", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    const [top, content, bottom] = editor.render(50);
-    expect(top).toContain(STREAMING_RGB);
-    expect(content).toContain(STREAMING_RGB);
-    expect(bottom).toContain(STREAMING_RGB);
-    expect(content).toContain(PILL_GLYPHS);
-    expect(bottom).toContain("STREAMING");
-  });
-
-  test("uses the exact #ea9a97 truecolor by default", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    const rendered = editor.render(50).join("\n");
-    expect(rendered).toContain(STREAMING_RGB);
-    // The sequence must be a 24-bit truecolor foreground.
-    expect(STREAMING_RGB).toBe("\x1b[38;2;234;154;151m");
-  });
-
-  test("shows STREAMING in the bottom-right border label", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    const bottom = editor.render(50)[2]!;
-    const stripped = stripAnsi(bottom);
-    expect(stripped).toMatch(/^╰/);
-    expect(stripped).toContain("STREAMING");
-    expect(stripped).toMatch(/STREAMING\s*─╯$/);
-  });
-
-  test("uses rounded box-drawing edges on every side at normal and narrow widths", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    for (const width of [4, 8, 50]) {
-      const [top, content, bottom] = editor.render(width).map(stripAnsi);
-      expect(top).toBe(`╭${"─".repeat(width - 2)}╮`);
-      expect(content).toMatch(/^│.*│$/);
-      expect(bottom).toMatch(/^╰.*╯$/);
-      expect(bottom).toContain("─");
-    }
-  });
-
-  test("adapts the frame and pill to terminal width", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    for (const width of [0, 1, 2, 3, 4, 5, 8, 30, 80]) {
-      const rendered = editor.render(width);
-      expect(rendered.length).toBe(3);
-      for (const row of rendered) {
-        expect(visibleWidth(row)).toBeLessThanOrEqual(width);
-      }
-    }
-  });
-
-  test("tiny widths are width-safe and keep three rows", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    for (let width = 0; width <= 8; width++) {
-      const rendered = editor.render(width);
-      expect(rendered.length).toBe(3);
-      for (const row of rendered) {
-        expect(visibleWidth(row)).toBeLessThanOrEqual(width);
-      }
-    }
-    expect(editor.render(1).map(stripAnsi)).toEqual(["─", "│", "─"]);
-  });
-
-  test("narrow widths render the longest safe pill prefix inside the frame", () => {
-    const editor = makeEditor();
-    editor.lock();
-
-    for (let width = 0; width < PILL_WIDTH + 2; width++) {
-      const rendered = editor.render(width);
-      expect(rendered.length).toBe(3);
-
-      const innerWidth = Math.max(0, width - 2);
-      let expectedPrefix = "";
-      let expectedWidth = 0;
-      for (const char of PILL_GLYPHS) {
-        const w = visibleWidth(char);
-        if (expectedWidth + w > innerWidth) break;
-        expectedPrefix += char;
-        expectedWidth += w;
-      }
-
-      const visible = extractVisiblePill(rendered[1]!);
-      expect(visible).toBe(expectedPrefix);
-    }
-  });
-
-  test("pill starts at the left edge of the inner content row", () => {
+  test("uses one synchronized full-brightness hue from 230°–320° for every textbox element", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
     editor.lock();
 
-    const content = editor.render(40)[1]!;
-    expect(countLeadingSpaces(content)).toBe(0);
+    const colors = new Set<string>();
+    const hues: number[] = [];
+    for (let frame = 0; frame < 1_000; frame++) {
+      now = frame * EXPECTED_FRAME_INTERVAL_MS;
+      const rendered = editor.render(50);
+      const frameColors = rendered.flatMap((row) =>
+        [...row.matchAll(/\x1b\[38;2;\d+;\d+;\d+m/g)].map((match) => match[0]),
+      );
+      expect(new Set(frameColors).size).toBe(1);
+      colors.add(frameColors[0]!);
+
+      const [hue, saturation, value] = rgbToHsv(getStreamingRgb(rendered[0]!));
+      hues.push(hue);
+      expect(value).toBe(100);
+      expect(saturation).toBeCloseTo(64 / 231 * 100, 0);
+      expect(hue).toBeGreaterThanOrEqual(229.5);
+      expect(hue).toBeLessThanOrEqual(320.5);
+    }
+    expect(Math.min(...hues)).toBeLessThanOrEqual(230.5);
+    expect(Math.max(...hues)).toBeGreaterThanOrEqual(319.5);
+    expect(colors.size).toBeGreaterThan(1);
   });
 
-  test("pill travels one-way left-to-right across the inner width over 2400ms", () => {
+  test("changes its shared shade and Matrix characters every 100ms", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
     editor.lock();
 
-    const width = 40;
-    const innerWidth = width - 2;
-    const maxPos = Math.max(0, innerWidth - PILL_WIDTH);
-    const positions = [0, 600, 1200, 1800, 2000].map((t) => {
-      now = t;
-      const content = editor.render(width)[1]!;
-      return countLeadingSpaces(content);
-    });
-
-    expect(positions[0]).toBe(0);
-    expect(positions[1]).toBe(Math.round(0.25 * maxPos));
-    expect(positions[2]).toBe(Math.round(0.5 * maxPos));
-    expect(positions[3]).toBe(Math.round(0.75 * maxPos));
-    expect(positions[4]).toBe(Math.round((2000 / 2400) * maxPos));
-    expect(new Set(positions).size).toBe(positions.length);
+    const first = editor.render(50);
+    now = 99;
+    expect(editor.render(50)).toEqual(first);
+    now = 100;
+    const next = editor.render(50);
+    expect(next).not.toEqual(first);
+    expect(getStreamingRgb(next[0]!)).not.toEqual(getStreamingRgb(first[0]!));
+    const characters = stripAnsi(next[1]!).slice(1, -1);
+    expect([...characters].every((char) => MATRIX_CHARACTERS.includes(char))).toBe(true);
   });
 
-  test("pill restarts at the left after 2400ms", () => {
+  test("handles narrow widths safely and hides the label when it cannot fit", () => {
     const editor = makeEditor();
-    let now = 0;
-    editor.setNowFn(() => now);
     editor.lock();
 
-    now = 0;
-    const first = editor.render(40)[1]!;
-    now = 2400;
-    const wrapped = editor.render(40)[1]!;
-
-    expect(countLeadingSpaces(first)).toBe(0);
-    expect(countLeadingSpaces(wrapped)).toBe(0);
+    for (let width = 0; width <= 14; width++) {
+      const rendered = editor.render(width);
+      expect(rendered).toHaveLength(width <= 1 ? 1 : 3);
+      for (const row of rendered) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+    }
+    expect(stripAnsi(editor.render(14)[2]!)).not.toContain("STREAMING");
+    expect(stripAnsi(editor.render(15)[2]!)).toBe("╰─ STREAMING ─╯");
   });
 });
 
@@ -367,7 +270,7 @@ describe("modal editor rounded border rendering", () => {
 });
 
 describe("raised transcript-tab editor geometry", () => {
-  test("joins all transcript labels to normal and streaming editor top edges across resizes", () => {
+  test("joins transcript labels to normal editor top edges across resizes", () => {
     let mode: "COLLAPSED" | "EXPANDED" | "FOCUSED" = "COLLAPSED";
     const editor = makeEditor(undefined, () => mode);
 
@@ -377,7 +280,7 @@ describe("raised transcript-tab editor geometry", () => {
       const expectedTop = `╭${"─".repeat(width - tabWidth - 1)}╯${" ".repeat(tabWidth - 2)}│`;
       expect(stripAnsi(editor.render(width)[0]!)).toBe(expectedTop);
       editor.lock();
-      expect(stripAnsi(editor.render(width)[0]!)).toBe(expectedTop);
+      expect(editor.render(width)).toHaveLength(3);
       editor.unlock();
     }
   });

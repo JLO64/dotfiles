@@ -57,16 +57,18 @@ This extension does not change `.zshrc` automatically.
 
 ## Working scanner and input lock
 
-While the agent is running, the editor is locked and displayed as a framed
-streaming state. The locked output is three rows: a rounded box-drawing (`╭─╮`)
-top border, a single inner content row bounded by `│` sides and containing the
-accent-colored pill scanner `████████`, and a rounded (`╰─╯`) bottom border.
-The frame and pill are tinted in the streaming truecolor `#ea9a97` (RGB
-234,154,151), and the bottom-right border label reads `STREAMING`. The pill
-travels one-way left-to-right across the inner content width over 2.4 seconds,
-then restarts at the left. Because the scanner replaces Pi's built-in working
-indicator, pi-vim hides the built-in `⠇ Working...` row while the extension is
-active.
+While the agent is running, the editor is locked and displayed as a three-row
+Matrix-style streaming textbox: a rounded top border, one full-width interior
+row of changing letters, digits, and symbols, and a rounded bottom border. The
+bottom border keeps `STREAMING` right-aligned when the terminal is at least 15
+columns wide. Every 100 ms, the entire textbox and the `COLLAPSED` transcript
+pill share the same new color and Matrix characters; the pill remains fixed in
+its normal position. Colors are deterministic hue variants of base `#c4a7e7`: they retain its
+derived saturation (about 28%) at 100% HSV value while varying the hue from
+230° through 320°, matching the keyboard's generated range while keeping the
+animation legible. Because this replaces
+Pi's built-in working indicator, pi-vim hides the built-in `⠇ Working...` row
+while the extension is active.
 
 - All typing, Vim commands, submission, steering, and follow-up input is
   swallowed while the streaming frame is visible.

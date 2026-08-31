@@ -32,7 +32,6 @@ describe("transcript mode badge", () => {
       NORMAL: "\x1b[38;5;7m",
       VISUAL: "\x1b[38;5;5m",
       SHELL: "\x1b[38;2;62;143;176m",
-      STREAMING: "\x1b[38;2;234;154;151m",
     } as const;
     const colorizer = (color: string) => (text: string) => `${color}${text}\x1b[39m`;
     const editor = new ModalEditor(
@@ -68,7 +67,12 @@ describe("transcript mode badge", () => {
     editor.setText("!git status");
     assertColor(colors.SHELL);
     editor.lock();
-    assertColor(colors.STREAMING);
+    const streamingLine = badge.render(24)[0]!;
+    const pillColor = streamingLine.match(/\x1b\[38;2;\d+;\d+;\d+m/)?.[0];
+    const textboxColor = editor.render(24)[0]!.match(/\x1b\[38;2;\d+;\d+;\d+m/)?.[0];
+    expect(pillColor).toBeDefined();
+    expect(textboxColor).toBe(pillColor);
+    expect(streamingLine).toContain(`${pillColor}\x1b[39m`);
     editor.unlock();
   });
 

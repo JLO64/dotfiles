@@ -131,7 +131,17 @@ const BRACKETED_PASTE_END = "\x1b[201~";
 const BRACKETED_PASTE_END_TAIL = BRACKETED_PASTE_END.slice(1);
 const MAX_COUNT = 9999;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
-const STREAMING_COLOR_START = "\x1b[38;2;234;154;151m";
+const STREAMING_FRAME_INTERVAL_MS = 100;
+const STREAMING_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>?/\\|[]{}()";
+const STREAMING_BASE_RGB = [196, 167, 231] as const;
+const STREAMING_BASE_VALUE = Math.max(...STREAMING_BASE_RGB);
+const STREAMING_BASE_CHROMA = STREAMING_BASE_VALUE - Math.min(...STREAMING_BASE_RGB);
+const STREAMING_BASE_HUE = 60 * (
+  (STREAMING_BASE_RGB[0] - STREAMING_BASE_RGB[1]) / STREAMING_BASE_CHROMA + 4
+);
+const STREAMING_BASE_SATURATION = STREAMING_BASE_CHROMA / STREAMING_BASE_VALUE * 100;
+const STREAMING_HUE_MIN_DEGREES = 230;
+const STREAMING_HUE_MAX_DEGREES = 320;
 const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
 const STYLE_RESET = "\x1b[0m";
@@ -139,10 +149,6 @@ const FAKE_CURSOR_AT_LINE_END = "\x1b[7m \x1b[0m";
 const CURSOR_SHAPE_BAR = "\x1b[6 q";
 const CURSOR_SHAPE_BLOCK = "\x1b[2 q";
 const CURSOR_SHAPE_DEFAULT = "\x1b[0 q";
-const PILL_GLYPHS = "\u{e0b6}████████\u{e0b4}";
-const PILL_WIDTH = visibleWidth(PILL_GLYPHS);
-const PILL_TRAVERSAL_MS = 2400;
-const PILL_FRAME_INTERVAL_MS = 1000 / 30;
 
 function shellColorize(text: string): string {
   return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
@@ -154,6 +160,11 @@ type EditorSnapshot = {
 };
 
 type TransitionState = "none" | "undo" | "redo";
+
+type StreamingFrame = {
+  index: number;
+  seed: number;
+};
 
 type ModeColorizers = {
   insert: (s: string) => string;
@@ -202,8 +213,8 @@ export class ModalEditor extends CustomEditor {
   private locked: boolean = false;
   private lockTimer: ReturnType<typeof setInterval> | null = null;
   private lockStartTime: number = 0;
-  private accentColorizer: (s: string) => string = (s) =>
-    `${STREAMING_COLOR_START}${s}${FOREGROUND_RESET}`;
+  private streamingFrame: StreamingFrame = { index: 0, seed: 12345 };
+  private accentColorizerOverride: ((s: string) => string) | null = null;
   private nowFn: () => number = Date.now;
 
   // Unnamed register
@@ -241,12 +252,13 @@ export class ModalEditor extends CustomEditor {
   getText(): string { return this.getLines().join("\n"); }
   getGhostSuffix(): string | null { return this.getEligibleGhostSuffix(); }
   setNowFn(fn: () => number): void { this.nowFn = fn; }
-  setAccentColorizer(fn: (s: string) => string): void { this.accentColorizer = fn; }
+  setAccentColorizer(fn: (s: string) => string): void { this.accentColorizerOverride = fn; }
   isLocked(): boolean { return this.locked; }
   lock(): void {
     this.stopLockTimer();
     this.locked = true;
     this.lockStartTime = this.nowFn();
+    this.streamingFrame = this.createStreamingFrame(0);
     this.startLockTimer();
     this.requestRender();
   }
@@ -1077,7 +1089,10 @@ export class ModalEditor extends CustomEditor {
 
   private startLockTimer(): void {
     this.stopLockTimer();
-    const timer = setInterval(() => this.requestRender(), PILL_FRAME_INTERVAL_MS);
+    const timer = setInterval(() => {
+      this.refreshStreamingFrame();
+      this.requestRender();
+    }, STREAMING_FRAME_INTERVAL_MS);
     if (typeof (timer as any).unref === "function") {
       (timer as any).unref();
     }
@@ -3386,7 +3401,9 @@ export class ModalEditor extends CustomEditor {
   }
 
   getBorderColorizer(): (s: string) => string {
-    return this.locked ? this.accentColorizer : this.getModeColorizer(this.borderColorizers);
+    return this.locked
+      ? this.getStreamingColorizer(this.refreshStreamingFrame())
+      : this.getModeColorizer(this.borderColorizers);
   }
 
   private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
@@ -3458,18 +3475,62 @@ export class ModalEditor extends CustomEditor {
     return "NORMAL";
   }
 
+  private createStreamingFrame(index: number): StreamingFrame {
+    return {
+      index,
+      seed: (Math.imul(index + 1, 1103515245) + 12345) >>> 0,
+    };
+  }
+
+  /** Advances the single frame shared by the textbox and transcript pill. */
+  private refreshStreamingFrame(): StreamingFrame {
+    const index = Math.max(0, Math.floor(
+      (this.nowFn() - this.lockStartTime) / STREAMING_FRAME_INTERVAL_MS,
+    ));
+    if (index !== this.streamingFrame.index) {
+      this.streamingFrame = this.createStreamingFrame(index);
+    }
+    return this.streamingFrame;
+  }
+
+  private nextStreamingRandom(seed: number): number {
+    return (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  }
+
+  private getStreamingColorizer(frame: StreamingFrame): (s: string) => string {
+    if (this.accentColorizerOverride) return this.accentColorizerOverride;
+    // Select a deterministic pseudo-random hue across the keyboard's 230°–320°
+    // range while retaining #c4a7e7's saturation and a full 100% HSV value.
+    const hue = STREAMING_HUE_MIN_DEGREES + (frame.seed >>> 16)
+      % (STREAMING_HUE_MAX_DEGREES - STREAMING_HUE_MIN_DEGREES + 1);
+    const [r, g, b] = this.hsvToRgb(
+      hue,
+      STREAMING_BASE_SATURATION,
+      100,
+    );
+    const color = `\x1b[38;2;${r};${g};${b}m`;
+    return (text: string) => `${color}${text}${FOREGROUND_RESET}`;
+  }
+
+  private hsvToRgb(hue: number, saturation: number, value: number): [number, number, number] {
+    const chroma = value / 100 * saturation / 100;
+    const hueSegment = ((hue % 360) + 360) % 360 / 60;
+    const secondary = chroma * (1 - Math.abs(hueSegment % 2 - 1));
+    const [red, green, blue] = hueSegment < 1 ? [chroma, secondary, 0]
+      : hueSegment < 2 ? [secondary, chroma, 0]
+      : hueSegment < 3 ? [0, chroma, secondary]
+      : hueSegment < 4 ? [0, secondary, chroma]
+      : hueSegment < 5 ? [secondary, 0, chroma]
+      : [chroma, 0, secondary];
+    const match = value / 100 - chroma;
+    return [red, green, blue].map((channel) => Math.round((channel + match) * 255)) as [number, number, number];
+  }
+
   private renderLocked(width: number): string[] {
-    const elapsed = this.nowFn() - this.lockStartTime;
-    const progress = (elapsed % PILL_TRAVERSAL_MS) / PILL_TRAVERSAL_MS;
-    const colorize = this.accentColorizer;
+    if (width <= 0) return [""];
 
-    if (width <= 0) {
-      return ["", "", ""];
-    }
-
-    if (width === 1) {
-      return [colorize("─"), colorize("│"), colorize("─")];
-    }
+    const colorize = this.getStreamingColorizer(this.refreshStreamingFrame());
+    if (width === 1) return [colorize("╳")];
 
     const innerWidth = width - 2;
     const tabLayout = this.getTranscriptMode
@@ -3478,67 +3539,20 @@ export class ModalEditor extends CustomEditor {
     const top = tabLayout
       ? `${colorize("╭")}${colorize("─".repeat(Math.max(0, tabLayout.tabLeft - 1)))}${colorize("╯")}${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}${colorize("│")}`
       : colorize(`╭${"─".repeat(innerWidth)}╮`);
-    const content = this.renderLockedContentRow(innerWidth, progress, colorize);
-    const bottom = this.renderLockedBottomBorder(width, colorize);
 
-    return [top, content, bottom];
-  }
-
-  private renderLockedContentRow(
-    innerWidth: number,
-    progress: number,
-    colorize: (s: string) => string,
-  ): string {
-    const leftBorder = colorize("│");
-    const rightBorder = colorize("│");
-
-    if (innerWidth <= 0) {
-      return leftBorder + rightBorder;
+    let seed = this.streamingFrame.seed;
+    let random = "";
+    for (let i = 0; i < innerWidth; i++) {
+      seed = this.nextStreamingRandom(seed);
+      random += STREAMING_CHARACTERS[seed % STREAMING_CHARACTERS.length];
     }
 
-    if (innerWidth < PILL_WIDTH) {
-      let pill = "";
-      let pillWidth = 0;
-      for (const char of PILL_GLYPHS) {
-        const charWidth = visibleWidth(char);
-        if (pillWidth + charWidth > innerWidth) break;
-        pill += char;
-        pillWidth += charWidth;
-      }
-      const coloredPill = colorize(pill);
-      const rightPad = " ".repeat(Math.max(0, innerWidth - pillWidth));
-      return leftBorder + coloredPill + rightPad + rightBorder;
-    }
-
-    const maxPos = Math.max(0, innerWidth - PILL_WIDTH);
-    const pos = Math.round(progress * maxPos);
-    const leftPad = " ".repeat(pos);
-    const coloredPill = colorize(PILL_GLYPHS);
-    const rightWidth = Math.max(0, innerWidth - pos - PILL_WIDTH);
-    const rightPad = " ".repeat(rightWidth);
-
-    return leftBorder + leftPad + coloredPill + rightPad + rightBorder;
-  }
-
-  private renderLockedBottomBorder(
-    width: number,
-    colorize: (s: string) => string,
-  ): string {
     const label = "STREAMING";
-    const maxLabelWidth = Math.max(0, width - 6);
-    if (maxLabelWidth === 0) {
-      return colorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
-    }
-
-    const rawLabel = truncateToWidth(label, maxLabelWidth, "…");
-    const labelWidth = visibleWidth(rawLabel);
-    const connectorWidth = Math.max(1, width - labelWidth - 5);
-    const boldLabel = `\x1b[1m${rawLabel}\x1b[22m`;
-    const bottom = `${colorize(`╰${"─".repeat(connectorWidth)} `)}${colorize(boldLabel)}${colorize(" ─╯")}`;
-
-    return visibleWidth(bottom) > width
-      ? truncateToWidth(bottom, width, "")
-      : bottom;
+    const labelFits = width >= label.length + 6;
+    const bottom = labelFits
+      ? `╰${"─".repeat(width - label.length - 5)} ${label} ─╯`
+      : `╰${"─".repeat(innerWidth)}╯`;
+    return [top, colorize(`│${random}│`), colorize(bottom)];
   }
 }
 
