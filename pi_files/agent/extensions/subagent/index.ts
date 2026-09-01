@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -34,7 +35,6 @@ import { buildAgentResourceArgs } from "./resource-config.ts";
 import {
 	compactMarkdownForDisplay,
 	formatContextTokens,
-	formatSummaryStats,
 	formatTurns,
 	humanizeDuration,
 	normalizeProfileModel,
@@ -42,6 +42,17 @@ import {
 	taskSummary,
 	type SummaryMetadata,
 } from "./summary.ts";
+import {
+	formatContextTokenLimit,
+	renderContextTokenLimit,
+	resolveContextTokenLimit,
+} from "./context-limits.ts";
+import {
+	CONTEXT_WARNING_PROTOCOL_PREFIX,
+	type ContextWarningProtocolPayload,
+} from "./context-limiter.ts";
+
+const CONTEXT_LIMITER_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "context-limiter.ts");
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -71,6 +82,7 @@ function formatUsageStats(
 		turns?: number;
 	},
 	model?: string,
+	contextTokenLimit?: number,
 ): string {
 	const parts: string[] = [];
 	const turns = formatTurns(usage.turns);
@@ -81,7 +93,7 @@ function formatUsageStats(
 	if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
 	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
 	if (usage.contextTokens && usage.contextTokens > 0) {
-		parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
+		parts.push(`ctx:${contextTokenLimit ? formatContextTokenLimit(usage.contextTokens, contextTokenLimit) : formatTokens(usage.contextTokens)}`);
 	}
 	if (model) parts.push(model);
 	return parts.join(" ");
@@ -165,6 +177,18 @@ interface UsageStats {
 	turns: number;
 }
 
+export interface ContextWarningDiagnostic {
+	threshold: 50 | 75 | 90 | 100;
+	used: number;
+	limit: number;
+	message: string;
+}
+
+type DisplayItem =
+	| { type: "text"; text: string }
+	| { type: "toolCall"; name: string; args: Record<string, any> }
+	| { type: "contextWarning"; warning: ContextWarningDiagnostic };
+
 interface SingleResult {
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
@@ -180,6 +204,9 @@ interface SingleResult {
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
+	contextTokenLimit: number;
+	contextWarnings: ContextWarningDiagnostic[];
+	activity: DisplayItem[];
 }
 
 interface SubagentDetails {
@@ -223,7 +250,7 @@ function markdownCodeBlock(value: string): string {
 	return `${fence}\n${value}\n${fence}`;
 }
 
-function formatFailureReport(result: SingleResult, diagnostic: string): string {
+export function formatFailureReport(result: SingleResult, diagnostic: string): string {
 	const metadata = JSON.stringify(
 		Object.fromEntries(
 			[
@@ -242,6 +269,7 @@ function formatFailureReport(result: SingleResult, diagnostic: string): string {
 		2,
 	);
 	const usage = JSON.stringify(result.usage, null, 2);
+	const warnings = JSON.stringify(result.contextWarnings, null, 2);
 	const messages = JSON.stringify(result.messages, null, 2);
 
 	return [
@@ -258,6 +286,9 @@ function formatFailureReport(result: SingleResult, diagnostic: string): string {
 		"",
 		"## Completed assistant messages and tool results",
 		markdownCodeBlock(messages),
+		"",
+		"## Context warning diagnostics",
+		markdownCodeBlock(warnings),
 		"",
 		"## Standard error",
 		markdownCodeBlock(result.stderr),
@@ -292,12 +323,18 @@ async function failureReportNote(result: SingleResult, diagnostic: string): Prom
 		: "Failure report could not be written.";
 }
 
-function renderSummary(metadata: SummaryMetadata, theme: { fg: (color: any, text: string) => string }): string | undefined {
+export function renderSummary(metadata: SummaryMetadata, theme: { fg: (color: any, text: string) => string }): string | undefined {
 	const { model, thinking } = normalizeProfileModel(metadata.model);
 	const cwd = shortenHome(metadata.cwd, os.homedir());
 	if (!model || !cwd) return undefined;
 
-	const stats = formatSummaryStats(thinking, metadata.contextTokens, metadata.turns);
+	const stats = [
+		thinking,
+		typeof metadata.contextTokens === "number" && typeof metadata.contextTokenLimit === "number"
+			? renderContextTokenLimit(metadata.contextTokens, metadata.contextTokenLimit, theme)
+			: formatContextTokens(metadata.contextTokens),
+		formatTurns(metadata.turns),
+	].filter(Boolean).join(", ");
 	let text = theme.fg("accent", model);
 	if (stats) text += `(${stats})`;
 	text += theme.fg("dim", " in ") + theme.fg("accent", ` ${cwd}`);
@@ -332,7 +369,7 @@ function renderFooter(
 ): string {
 	const summary = renderSummary(metadata, theme);
 	if (summary) return `${icon} ${summary}`;
-	const usageText = formatUsageStats(usage, metadata.model);
+	const usageText = formatUsageStats(usage, metadata.model, metadata.contextTokenLimit);
 	return `${icon} ${theme.fg("dim", usageText || "running...")}`;
 }
 
@@ -374,6 +411,7 @@ export function aggregateSummary(
 				...first,
 				gitBranch: gitBranches.values().next().value,
 				contextTokens,
+				contextTokenLimit: undefined,
 				turns,
 				durationMs,
 			},
@@ -399,8 +437,6 @@ function truncateParallelOutput(output: string): string {
 	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
 }
 
-type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, any> };
-
 function getDisplayItems(messages: Message[]): DisplayItem[] {
 	const items: DisplayItem[] = [];
 	for (const msg of messages) {
@@ -412,6 +448,57 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 		}
 	}
 	return items;
+}
+
+export function parseContextWarningProtocolLine(line: string): ContextWarningDiagnostic | undefined {
+	if (!line.startsWith(CONTEXT_WARNING_PROTOCOL_PREFIX)) return undefined;
+	try {
+		const payload: unknown = JSON.parse(line.slice(CONTEXT_WARNING_PROTOCOL_PREFIX.length));
+		if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+		const value = payload as Partial<ContextWarningProtocolPayload>;
+		if (
+			value.v !== 1 ||
+			value.type !== "context_warning" ||
+			(value.threshold !== 50 && value.threshold !== 75 && value.threshold !== 90 && value.threshold !== 100) ||
+			typeof value.used !== "number" || !Number.isSafeInteger(value.used) || value.used < 0 ||
+			typeof value.limit !== "number" || !Number.isSafeInteger(value.limit) || value.limit <= 0 ||
+			typeof value.message !== "string" || value.message.length === 0 ||
+			(value.used / value.limit) * 100 < value.threshold
+		) return undefined;
+		return { threshold: value.threshold, used: value.used, limit: value.limit, message: value.message };
+	} catch {
+		return undefined;
+	}
+}
+
+export function resultDisplayItems(result: SingleResult): DisplayItem[] {
+	if (result.activity?.length) return result.activity;
+	return [
+		...getDisplayItems(result.messages),
+		...(result.contextWarnings ?? []).map((warning) => ({ type: "contextWarning" as const, warning })),
+	];
+}
+
+function addDisplayItems(
+	container: Container,
+	items: DisplayItem[],
+	theme: { fg: (color: any, text: string) => string },
+	mdTheme: ReturnType<typeof getMarkdownTheme>,
+): void {
+	for (const item of items) {
+		if (item.type === "toolCall") {
+			container.addChild(new Text(
+				theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
+				0,
+				0,
+			));
+		} else if (item.type === "contextWarning") {
+			const color = item.warning.threshold >= 90 ? "error" : "warning";
+			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 0, 0));
+		} else if (item.text.trim()) {
+			container.addChild(new CompactMarkdown(item.text.trim(), 0, 0, mdTheme));
+		}
+	}
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
@@ -492,6 +579,7 @@ async function runSingleAgent(
 	task: string,
 	cwd: string | undefined,
 	step: number | undefined,
+	contextTokenLimit: number,
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
@@ -509,6 +597,24 @@ async function runSingleAgent(
 			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
 			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 			step,
+			contextTokenLimit,
+			contextWarnings: [],
+			activity: [],
+		};
+	}
+	if (agent.configurationError) {
+		return {
+			agent: agentName,
+			agentSource: agent.source,
+			task,
+			exitCode: 1,
+			messages: [],
+			stderr: `Profile configuration error for agent "${agentName}": ${agent.configurationError}`,
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			step,
+			contextTokenLimit,
+			contextWarnings: [],
+			activity: [],
 		};
 	}
 
@@ -531,6 +637,9 @@ async function runSingleAgent(
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 		model: agent.model,
 		step,
+		contextTokenLimit,
+		contextWarnings: [],
+		activity: [],
 	};
 
 	const emitUpdate = () => {
@@ -545,7 +654,7 @@ async function runSingleAgent(
 	emitUpdate();
 
 	try {
-		args.push(...buildAgentResourceArgs(agent));
+		args.push(...buildAgentResourceArgs(agent, fs.existsSync, CONTEXT_LIMITER_EXTENSION_PATH));
 	} catch (error) {
 		currentResult.exitCode = 1;
 		currentResult.stderr = error instanceof Error ? error.message : String(error);
@@ -571,8 +680,10 @@ async function runSingleAgent(
 				cwd: childCwd,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
+				env: { ...process.env, PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: String(contextTokenLimit) },
 			});
 			let buffer = "";
+			let stderrBuffer = "";
 			let elapsedTimer: ReturnType<typeof setInterval> | undefined;
 			const stopElapsedTimer = () => {
 				if (elapsedTimer) clearInterval(elapsedTimer);
@@ -591,6 +702,7 @@ async function runSingleAgent(
 				if (event.type === "message_end" && event.message) {
 					const msg = event.message as Message;
 					currentResult.messages.push(msg);
+					if (msg.role === "assistant") currentResult.activity.push(...getDisplayItems([msg]));
 
 					if (msg.role === "assistant") {
 						currentResult.usage.turns++;
@@ -623,8 +735,24 @@ async function runSingleAgent(
 				for (const line of lines) processLine(line);
 			});
 
+			const processStderrLine = (line: string) => {
+				const warning = parseContextWarningProtocolLine(line);
+				if (warning) {
+					if (!currentResult.contextWarnings.some((existing) => existing.threshold === warning.threshold)) {
+						currentResult.contextWarnings.push(warning);
+						currentResult.activity.push({ type: "contextWarning", warning });
+						emitUpdate();
+					}
+					return;
+				}
+				currentResult.stderr += `${line}\n`;
+			};
+
 			proc.stderr.on("data", (data) => {
-				currentResult.stderr += data.toString();
+				stderrBuffer += data.toString();
+				const lines = stderrBuffer.split("\n");
+				stderrBuffer = lines.pop() || "";
+				for (const line of lines) processStderrLine(line);
 			});
 
 			if (onUpdate) {
@@ -637,6 +765,7 @@ async function runSingleAgent(
 			proc.on("close", (code) => {
 				stopElapsedTimer();
 				if (buffer.trim()) processLine(buffer);
+				if (stderrBuffer) processStderrLine(stderrBuffer);
 				resolve(code ?? 0);
 			});
 
@@ -684,16 +813,24 @@ async function runSingleAgent(
 	}
 }
 
+const ContextTokenLimit = Type.Optional(Type.Integer({
+	minimum: 1,
+	maximum: Number.MAX_SAFE_INTEGER,
+	description: "Soft current-context token limit for this child; must be a positive safe integer and defaults to the profile value or 120000",
+}));
+
 const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task to delegate to the agent" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	contextTokenLimit: ContextTokenLimit,
 });
 
 const ChainItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	contextTokenLimit: ContextTokenLimit,
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
@@ -708,6 +845,7 @@ const SubagentParams = Type.Object({
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+	contextTokenLimit: ContextTokenLimit,
 });
 
 export default function (pi: ExtensionAPI) {
@@ -785,6 +923,7 @@ export default function (pi: ExtensionAPI) {
 						taskWithContext,
 						step.cwd,
 						i + 1,
+						resolveContextTokenLimit(step.contextTokenLimit, agents.find((agent) => agent.name === step.agent)?.contextTokenLimit),
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
@@ -836,6 +975,12 @@ export default function (pi: ExtensionAPI) {
 						messages: [],
 						stderr: "",
 						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+						contextTokenLimit: resolveContextTokenLimit(
+							params.tasks[i].contextTokenLimit,
+							agents.find((agent) => agent.name === params.tasks![i].agent)?.contextTokenLimit,
+						),
+						contextWarnings: [],
+						activity: [],
 					};
 				}
 
@@ -860,6 +1005,7 @@ export default function (pi: ExtensionAPI) {
 						t.task,
 						t.cwd,
 						undefined,
+						resolveContextTokenLimit(t.contextTokenLimit, agents.find((agent) => agent.name === t.agent)?.contextTokenLimit),
 						signal,
 						// Per-task update callback
 						(partial) => {
@@ -906,6 +1052,7 @@ export default function (pi: ExtensionAPI) {
 					params.task,
 					params.cwd,
 					undefined,
+					resolveContextTokenLimit(params.contextTokenLimit, agents.find((agent) => agent.name === params.agent)?.contextTokenLimit),
 					signal,
 					onUpdate,
 					makeDetails("single"),
@@ -971,8 +1118,7 @@ export default function (pi: ExtensionAPI) {
 				const isRunning = isRunningResult(r);
 				const isError = isFailedResult(r);
 				const icon = statusIcon(isRunning ? "running" : isError ? "failure" : "success", theme);
-				const displayItems = getDisplayItems(r.messages);
-				const finalOutput = getFinalOutput(r.messages);
+				const displayItems = resultDisplayItems(r);
 
 				if (expanded) {
 					const container = new Container();
@@ -986,30 +1132,17 @@ export default function (pi: ExtensionAPI) {
 					container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
 					container.addChild(new Spacer(1));
 					container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
-					if (displayItems.length === 0 && !finalOutput) {
+					if (displayItems.length === 0) {
 						container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
 					} else {
-						for (const item of displayItems) {
-							if (item.type === "toolCall")
-								container.addChild(
-									new Text(
-										theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-										0,
-										0,
-									),
-								);
-						}
-						if (finalOutput) {
-							container.addChild(new Spacer(1));
-							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
-						}
+						addDisplayItems(container, displayItems, theme, mdTheme);
 					}
 					const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 					if (summary) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(summary, 0, 0));
 					} else {
-						const usageStr = formatUsageStats(r.usage, r.model);
+						const usageStr = formatUsageStats(r.usage, r.model, r.contextTokenLimit);
 						if (usageStr) container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
 					}
 					return container;
@@ -1035,8 +1168,7 @@ export default function (pi: ExtensionAPI) {
 							isRunningResult(r) ? "running" : r.exitCode === 0 ? "success" : "failure",
 							theme,
 						);
-						const displayItems = getDisplayItems(r.messages);
-						const finalOutput = getFinalOutput(r.messages);
+						const displayItems = resultDisplayItems(r);
 
 						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
@@ -1047,30 +1179,12 @@ export default function (pi: ExtensionAPI) {
 							),
 						);
 						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
-
-						// Show tool calls
-						for (const item of displayItems) {
-							if (item.type === "toolCall") {
-								container.addChild(
-									new Text(
-										theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-										0,
-										0,
-									),
-								);
-							}
-						}
-
-						// Show final output as markdown
-						if (finalOutput) {
-							container.addChild(new Spacer(1));
-							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
-						}
+						addDisplayItems(container, displayItems, theme, mdTheme);
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 						if (summary) container.addChild(new Text(summary, 0, 0));
 						else {
-							const stepUsage = formatUsageStats(r.usage, r.model);
+							const stepUsage = formatUsageStats(r.usage, r.model, r.contextTokenLimit);
 							if (stepUsage) container.addChild(new Text(theme.fg("dim", stepUsage), 0, 0));
 						}
 					}
@@ -1109,38 +1223,19 @@ export default function (pi: ExtensionAPI) {
 							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
 							theme,
 						);
-						const displayItems = getDisplayItems(r.messages);
-						const finalOutput = getFinalOutput(r.messages);
+						const displayItems = resultDisplayItems(r);
 
 						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
 							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
 						);
 						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
-
-						// Show tool calls
-						for (const item of displayItems) {
-							if (item.type === "toolCall") {
-								container.addChild(
-									new Text(
-										theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-										0,
-										0,
-									),
-								);
-							}
-						}
-
-						// Show final output as markdown
-						if (finalOutput) {
-							container.addChild(new Spacer(1));
-							container.addChild(new CompactMarkdown(finalOutput.trim(), 0, 0, mdTheme));
-						}
+						addDisplayItems(container, displayItems, theme, mdTheme);
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 						if (summary) container.addChild(new Text(summary, 0, 0));
 						else {
-							const taskUsage = formatUsageStats(r.usage, r.model);
+							const taskUsage = formatUsageStats(r.usage, r.model, r.contextTokenLimit);
 							if (taskUsage) container.addChild(new Text(theme.fg("dim", taskUsage), 0, 0));
 						}
 					}

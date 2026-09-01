@@ -4,6 +4,7 @@ export interface SummaryMetadata {
 	gitBranch?: string;
 	durationMs?: number;
 	contextTokens?: number;
+	contextTokenLimit?: number;
 	turns?: number;
 }
 

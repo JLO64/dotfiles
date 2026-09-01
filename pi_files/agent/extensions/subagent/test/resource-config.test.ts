@@ -1,5 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import * as path from "node:path";
+
+function expect(actual: unknown) {
+	return {
+		toBe(expected: unknown) { assert.equal(actual, expected); },
+		toEqual(expected: unknown) { assert.deepEqual(actual, expected); },
+		toContain(expected: string) { assert.ok(String(actual).includes(expected)); },
+		toThrow(expected: string) { assert.throws(actual as () => unknown, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))); },
+		get not() { return { toBeNull() { assert.notEqual(actual, null); } }; },
+	};
+}
 import { parseAgentContent, type AgentConfig } from "../agents.ts";
 import { buildAgentResourceArgs, resolveAgentResourcePath } from "../resource-config.ts";
 
@@ -40,6 +51,43 @@ Prompt body.
 		expect(agent?.skills).toEqual(["../restricted-skills/one/SKILL.md", "/opt/pi/two/SKILL.md"]);
 		expect(agent?.isolateExtensions).toBe(true);
 		expect(agent?.isolateSkills).toBe(false);
+	});
+
+	test("parses a safe profile context-token-limit and retains invalid profile errors", () => {
+		expect(parseAgentContent(
+		`---
+name: example
+description: Test agent
+context-token-limit: 90000
+---
+Prompt body.`,
+		profilePath,
+		"project",
+	)?.contextTokenLimit).toBe(90_000);
+
+		const invalid = parseAgentContent(
+			`---
+name: example
+description: Test agent
+context-token-limit: 0
+---
+Prompt body.`,
+			profilePath,
+			"project",
+		);
+		expect(invalid?.configurationError).toContain("expected a positive safe integer");
+
+		const unsafe = parseAgentContent(
+			`---
+name: example
+description: Test agent
+context-token-limit: 9007199254740992
+---
+Prompt body.`,
+			profilePath,
+			"project",
+		);
+		expect(unsafe?.configurationError).toContain("expected a positive safe integer");
 	});
 
 	test("preserves existing profiles without resource fields", () => {
@@ -83,6 +131,16 @@ describe("pi resource arguments", () => {
 		expect(buildAgentResourceArgs(makeAgent(), exists)).toEqual([]);
 	});
 
+	test("loads the context limiter after isolated profile extensions", () => {
+		expect(buildAgentResourceArgs(makeAgent({ isolateExtensions: true, extensions: ["./profile.ts"] }), exists, "/extension/context-limiter.ts")).toEqual([
+			"--no-extensions",
+			"-e",
+			"/repo/.pi/agents/profile.ts",
+			"-e",
+			"/extension/context-limiter.ts",
+		]);
+	});
+
 	test("adds resources without disabling discovery when isolation is off", () => {
 		const agent = makeAgent({
 			extensions: ["./extension.ts"],
@@ -114,6 +172,14 @@ describe("pi resource arguments", () => {
 			"--no-skills",
 			"--skill",
 			"/repo/.pi/restricted-skills/one/SKILL.md",
+		]);
+	});
+
+	test("does not duplicate a profile-declared context limiter", () => {
+		const agent = makeAgent({ extensions: ["/extension/context-limiter.ts"] });
+		expect(buildAgentResourceArgs(agent, exists, "/extension/context-limiter.ts")).toEqual([
+			"-e",
+			"/extension/context-limiter.ts",
 		]);
 	});
 

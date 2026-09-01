@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { parseContextTokenLimit } from "./context-limits.ts";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -17,6 +18,8 @@ export interface AgentConfig {
 	isolateExtensions?: boolean;
 	isolateSkills?: boolean;
 	model?: string;
+	contextTokenLimit?: number;
+	configurationError?: string;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -55,6 +58,14 @@ export function parseAgentContent(
 		return null;
 	}
 
+	let contextTokenLimit: number | undefined;
+	let configurationError: string | undefined;
+	try {
+		contextTokenLimit = parseContextTokenLimit(frontmatter["context-token-limit"], "context-token-limit profile value");
+	} catch (error) {
+		configurationError = error instanceof Error ? error.message : String(error);
+	}
+
 	return {
 		name: frontmatter.name,
 		description: frontmatter.description,
@@ -64,6 +75,8 @@ export function parseAgentContent(
 		isolateExtensions: parseBoolean(frontmatter["isolate-extensions"]),
 		isolateSkills: parseBoolean(frontmatter["isolate-skills"]),
 		model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+		contextTokenLimit,
+		configurationError,
 		systemPrompt: body,
 		source,
 		filePath,

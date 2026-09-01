@@ -1,4 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+
+function expect(actual: unknown) {
+	return {
+		toBe(expected: unknown) { assert.equal(actual, expected); },
+		toEqual(expected: unknown) { assert.deepEqual(actual, expected); },
+		toContain(expected: string) { assert.ok(String(actual).includes(expected)); },
+	};
+}
+
 import {
 	compactMarkdownForDisplay,
 	formatContextTokens,

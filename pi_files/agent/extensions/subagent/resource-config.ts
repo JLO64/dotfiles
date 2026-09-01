@@ -10,8 +10,10 @@ export function resolveAgentResourcePath(agentFilePath: string, resourcePath: st
 export function buildAgentResourceArgs(
 	agent: AgentConfig,
 	pathExists: (resourcePath: string) => boolean = fs.existsSync,
+	contextLimiterExtensionPath?: string,
 ): string[] {
 	const args: string[] = [];
+	const normalizedLimiterPath = contextLimiterExtensionPath && path.normalize(contextLimiterExtensionPath);
 
 	if (agent.isolateExtensions) args.push("--no-extensions");
 	for (const extension of agent.extensions ?? []) {
@@ -19,8 +21,9 @@ export function buildAgentResourceArgs(
 		if (!pathExists(resolvedPath)) {
 			throw new Error(`Agent "${agent.name}" extension does not exist: ${resolvedPath}`);
 		}
-		args.push("-e", resolvedPath);
+		if (resolvedPath !== normalizedLimiterPath) args.push("-e", resolvedPath);
 	}
+	if (contextLimiterExtensionPath) args.push("-e", contextLimiterExtensionPath);
 
 	if (agent.isolateSkills) args.push("--no-skills");
 	for (const skill of agent.skills ?? []) {
