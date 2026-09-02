@@ -603,3 +603,7 @@ compdef _git_summarize git_summarize
 # bun completions
 [ -s "/Users/64julianlopez/.bun/_bun" ] && source "/Users/64julianlopez/.bun/_bun"
 
+if [ -d "$HOME/.slotstream/bin" ]; then
+  export PATH="$HOME/.slotstream/bin:$PATH"
+fi
+
