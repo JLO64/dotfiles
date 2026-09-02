@@ -58,6 +58,8 @@ Always specify a language on fenced code blocks; never use a bare fence. Show pr
 
 Delegate work that benefits from isolated context.
 
+Do not set a subagent invocation's `contextTokenLimit` argument unless the user explicitly instructs you to do so.
+
 Do not delegate the creation or editing of project plans or internal documentation Markdown files; handle those changes directly as the main agent.
 
 ### Task Decomposition
