@@ -200,6 +200,8 @@ export class ModalEditor extends CustomEditor {
   private readonly historyService: ZshHistoryService | null;
   private hardwareCursorEnabled: boolean = false;
   private cursorShapeSent: string | null = null;
+  private hiddenTopLineCount: number = 0;
+  private hiddenBottomLineCount: number = 0;
 
   // Working / input-lock state
   private locked: boolean = false;
@@ -3374,9 +3376,14 @@ export class ModalEditor extends CustomEditor {
     const tabLayout = this.getTranscriptMode
       ? getRaisedTabLayout(width, this.getTranscriptMode())
       : null;
-    const top = tabLayout
-      ? `${borderColorize("╭")}${borderColorize("─".repeat(Math.max(0, tabLayout.tabLeft - 1)))}${borderColorize("╯")}${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}${borderColorize("│")}`
-      : borderColorize(`╭${"─".repeat(innerWidth)}╮`);
+    const topFrame = tabLayout
+      ? `╭${"─".repeat(Math.max(0, tabLayout.tabLeft - 1))}╯${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}│`
+      : `╭${"─".repeat(innerWidth)}╮`;
+    const top = borderColorize(this.renderBorderOverflowIndicator(
+      topFrame,
+      this.hiddenTopLineCount,
+      "↑",
+    ));
     const framedContent = contentLines.map((line) => {
       const safeLine = visibleWidth(line) > innerWidth
         ? truncateToWidth(line, innerWidth, "")
@@ -3384,10 +3391,24 @@ export class ModalEditor extends CustomEditor {
       const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(safeLine)));
       return `${borderColorize("│")}${safeLine}${padding}${borderColorize("│")}`;
     });
-    const bottom = this.renderBottomBorder(width, borderColorize);
+    const bottom = this.renderModeBottomBorder(
+      width,
+      borderColorize,
+      this.hiddenBottomLineCount,
+    );
 
     this.syncCursorShape();
     return [top, ...framedContent, bottom];
+  }
+
+  protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+    this.hiddenTopLineCount = hiddenLineCount;
+    return super.renderTopBorder(width, hiddenLineCount);
+  }
+
+  protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
+    this.hiddenBottomLineCount = hiddenLineCount;
+    return super.renderBottomBorder(width, hiddenLineCount);
   }
 
   getBorderColorizer(): (s: string) => string {
@@ -3406,9 +3427,29 @@ export class ModalEditor extends CustomEditor {
     return colorizers.normal;
   }
 
-  private renderBottomBorder(
+  private renderBorderOverflowIndicator(
+    frame: string,
+    hiddenLineCount: number,
+    arrow: "↑" | "↓",
+  ): string {
+    if (hiddenLineCount <= 0) return frame;
+
+    const label = `${arrow} ${hiddenLineCount} more`;
+    const labelWidth = visibleWidth(label);
+    const start = Math.floor((visibleWidth(frame) - labelWidth) / 2);
+    const end = start + labelWidth;
+    if (start < 1 || end > visibleWidth(frame) - 1) return frame;
+
+    // An occupied transcript tab or bottom-mode label must never be replaced.
+    // Only replace the uninterrupted horizontal frame segment at the geometric center.
+    if (frame.slice(start, end) !== "─".repeat(labelWidth)) return frame;
+    return frame.slice(0, start) + label + frame.slice(end);
+  }
+
+  private renderModeBottomBorder(
     width: number,
     borderColorize: (s: string) => string,
+    hiddenLineCount: number,
   ): string {
     const maxLabelWidth = Math.max(0, width - 6);
     if (maxLabelWidth === 0) {
@@ -3418,9 +3459,21 @@ export class ModalEditor extends CustomEditor {
     const rawLabel = truncateToWidth(this.getModeLabel(), maxLabelWidth, "…");
     const labelWidth = visibleWidth(rawLabel);
     const connectorWidth = Math.max(1, width - labelWidth - 5);
+    let leftFrame = `╰${"─".repeat(connectorWidth)} `;
+    if (hiddenLineCount > 0) {
+      const indicator = `↓ ${hiddenLineCount} more`;
+      const indicatorWidth = visibleWidth(indicator);
+      const start = Math.floor((width - indicatorWidth) / 2);
+      const end = start + indicatorWidth;
+      // The mode label begins immediately after the left frame. Keep it and
+      // both corners intact by replacing only the centered dash run.
+      if (start >= 1 && end <= connectorWidth + 1) {
+        leftFrame = `╰${"─".repeat(start - 1)}${indicator}${"─".repeat(connectorWidth + 1 - end)} `;
+      }
+    }
     const labelColorize = this.getModeColorizer(this.labelColorizers);
     const boldLabel = labelColorize(`\x1b[1m${rawLabel}\x1b[22m`);
-    const bottom = `${borderColorize(`╰${"─".repeat(connectorWidth)} `)}${boldLabel}${borderColorize(" ─╯")}`;
+    const bottom = `${borderColorize(leftFrame)}${boldLabel}${borderColorize(" ─╯")}`;
 
     return visibleWidth(bottom) > width
       ? truncateToWidth(bottom, width, "")

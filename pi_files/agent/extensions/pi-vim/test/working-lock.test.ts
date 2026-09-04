@@ -249,6 +249,40 @@ describe("modal editor rounded border rendering", () => {
   });
 });
 
+describe("modal editor hidden-line border indicators", () => {
+  const manyLines = Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n");
+
+  test("centers top and bottom indicators without changing the frame or mode label", () => {
+    const editor = makeEditor();
+    editor.setText(manyLines);
+
+    const top = stripAnsi(editor.render(50)[0]!);
+    expect(top).toContain("↑ 8 more");
+    expect(top.indexOf("↑ 8 more")).toBe(Math.floor((50 - "↑ 8 more".length) / 2));
+    expect(top).toMatch(/^╭.*╮$/);
+
+    const internals = editor as unknown as { state: { cursorLine: number; cursorCol: number } };
+    internals.state.cursorLine = 0;
+    internals.state.cursorCol = 0;
+    const bottom = stripAnsi(editor.render(50).at(-1)!);
+    expect(bottom).toContain("↓ 8 more");
+    expect(bottom.indexOf("↓ 8 more")).toBe(Math.floor((50 - "↓ 8 more".length) / 2));
+    expect(bottom).toContain("INSERT");
+    expect(bottom).toMatch(/^╰.*╯$/);
+  });
+
+  test("omits indicators when there is no overflow or a transcript tab occupies the center", () => {
+    const editor = makeEditor(undefined, () => "COLLAPSED");
+    expect(stripAnsi(editor.render(50)[0]!)).not.toContain("more");
+
+    editor.setText(manyLines);
+    const narrowTop = stripAnsi(editor.render(18)[0]!);
+    expect(narrowTop).not.toContain("more");
+    const tabWidth = "╭─COLLAPSED─╮".length;
+    expect(narrowTop).toBe(`╭${"─".repeat(18 - tabWidth - 1)}╯${" ".repeat(tabWidth - 2)}│`);
+  });
+});
+
 describe("raised transcript-tab editor geometry", () => {
   test("joins transcript labels to normal editor top edges across resizes", () => {
     let mode: "COLLAPSED" | "EXPANDED" | "FOCUSED" = "COLLAPSED";
