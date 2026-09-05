@@ -32,6 +32,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { buildAgentResourceArgs } from "./resource-config.ts";
+import { resolveAgentModel } from "./model-config.ts";
 import {
 	compactMarkdownForDisplay,
 	formatContextTokens,
@@ -618,8 +619,9 @@ async function runSingleAgent(
 		};
 	}
 
+	const model = resolveAgentModel(agent.name, agent.model);
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
-	if (agent.model) args.push("--model", agent.model);
+	if (model) args.push("--model", model);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
@@ -635,7 +637,7 @@ async function runSingleAgent(
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		model: agent.model,
+		model,
 		step,
 		contextTokenLimit,
 		contextWarnings: [],

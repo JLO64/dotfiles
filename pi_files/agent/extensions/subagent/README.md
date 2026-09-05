@@ -27,6 +27,10 @@ context-token-limit: 90000
 - `isolate-skills`: when `true`, passes `--no-skills` before explicitly loading `skills`.
 - `context-token-limit`: optional positive finite integer soft limit for the child's current context occupancy. It defaults to `120000` when neither the profile nor invocation supplies a limit.
 
+## Git operator model override
+
+Set `PI_GIT_OPERATOR_MODEL` to override the configured model only for the agent named exactly `git-operator`. Empty or whitespace-only values are ignored, and all other agents retain their profile model. For example: `PI_GIT_OPERATOR_MODEL=openai/gpt-5.6-luna`.
+
 If an isolation field is omitted or `false`, normal pi discovery remains enabled and declared resources are additive. Setting isolation to `true` with no corresponding resources creates a child with none of that resource type. The subagent context limiter is always explicitly loaded, including for isolated extension profiles.
 
 ## Context limits
