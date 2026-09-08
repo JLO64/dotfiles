@@ -76,6 +76,10 @@ import {
 } from "@earendil-works/pi-tui";
 import { wordWrapLine } from "./word-wrap.js";
 import {
+  getMarkdownHighlightSpans,
+  type MarkdownHighlightStyle,
+} from "./markdown-highlighting.js";
+import {
   extractShellQuery,
   ZshHistoryService,
 } from "./zsh-history.js";
@@ -198,6 +202,7 @@ export class ModalEditor extends CustomEditor {
   private readonly labelColorizers: ModeColorizers | null;
   private readonly borderColorizers: ModeColorizers | null;
   private readonly historyService: ZshHistoryService | null;
+  private readonly syntaxTheme: any;
   private hardwareCursorEnabled: boolean = false;
   private cursorShapeSent: string | null = null;
   private hiddenTopLineCount: number = 0;
@@ -225,11 +230,13 @@ export class ModalEditor extends CustomEditor {
     historyService?: ZshHistoryService | null,
     private readonly advanceTranscriptCycle?: (advance: boolean) => boolean,
     private readonly getTranscriptMode?: () => TranscriptMode,
+    syntaxTheme?: any,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
     this.borderColorizers = borderColorizers ?? null;
     this.historyService = historyService ?? null;
+    this.syntaxTheme = syntaxTheme ?? theme;
     this.historyService?.setOnUpdate(() => this.requestRender());
   }
 
@@ -2983,6 +2990,124 @@ export class ModalEditor extends CustomEditor {
     }));
   }
 
+  private renderMarkdownOverlays(width: number, baseLines: string[]): string[] {
+    if (typeof this.syntaxTheme?.fg !== "function") return baseLines;
+
+    const paddingX = Math.min(
+      this.getPaddingX(),
+      Math.max(0, Math.floor((width - 1) / 2)),
+    );
+    const contentWidth = Math.max(1, width - paddingX * 2);
+    const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+    const leftPadding = " ".repeat(paddingX);
+    const layoutLines = this.buildFlashLayout(layoutWidth);
+    if (layoutLines.length === 0) return baseLines;
+
+    const cursorLayoutIndex = this.findLayoutLineIndex(layoutLines, this.getCursor());
+    if (cursorLayoutIndex === -1) return baseLines;
+
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } })
+      .tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const scrollOffset = this.getRenderedScrollOffset(layoutLines.length, maxVisibleLines);
+    const spansByLine = getMarkdownHighlightSpans(this.getLines());
+    const result = [...baseLines];
+    const contentEnd = baseLines.length - 1;
+
+    for (let layoutIndex = scrollOffset; layoutIndex < layoutLines.length; layoutIndex++) {
+      if (layoutIndex >= scrollOffset + maxVisibleLines) break;
+      const renderedContentIndex = 1 + layoutIndex - scrollOffset;
+      if (renderedContentIndex >= contentEnd) break;
+
+      const layoutLine = layoutLines[layoutIndex]!;
+      const renderedLine = result[renderedContentIndex]!;
+      if (!renderedLine.startsWith(leftPadding)) continue;
+
+      const contentStartIndex = leftPadding.length;
+      const contentEndIndex = renderedLine.length - (paddingX > 0 ? paddingX : 0);
+      const beforePadding = renderedLine.slice(0, contentStartIndex);
+      const afterPadding = renderedLine.slice(contentEndIndex);
+      let content = renderedLine.slice(contentStartIndex, contentEndIndex);
+
+      for (const span of spansByLine[layoutLine.logicalLine] ?? []) {
+        const start = Math.max(span.start, layoutLine.startCol);
+        const end = Math.min(span.end, layoutLine.endCol);
+        if (end <= start) continue;
+        const startVisibleCol = this.computeVisibleColumn(
+          layoutLine.text,
+          start - layoutLine.startCol,
+        );
+        const endVisibleCol = this.computeVisibleColumn(
+          layoutLine.text,
+          end - layoutLine.startCol,
+        );
+        if (startVisibleCol === null || endVisibleCol === null) continue;
+        content = this.styleVisibleRange(content, startVisibleCol, endVisibleCol, span.style);
+      }
+
+      result[renderedContentIndex] = beforePadding + content + afterPadding;
+    }
+
+    return result.map((line) =>
+      visibleWidth(line) > width ? truncateToWidth(line, width, "") : line,
+    );
+  }
+
+  private styleVisibleRange(
+    content: string,
+    startCol: number,
+    endCol: number,
+    style: MarkdownHighlightStyle,
+  ): string {
+    let result = "";
+    let visibleCol = 0;
+    let index = 0;
+
+    while (index < content.length) {
+      if (content[index] === "\x1b") {
+        const ansiEnd = this.findAnsiSequenceEnd(content, index);
+        if (ansiEnd !== null) {
+          result += content.slice(index, ansiEnd);
+          index = ansiEnd;
+          continue;
+        }
+      }
+
+      const grapheme = getLineGraphemes(content.slice(index))[0];
+      if (!grapheme) {
+        result += content.slice(index);
+        break;
+      }
+      const segment = content.slice(index, index + grapheme.end);
+      const segmentWidth = visibleWidth(segment);
+      const selected = visibleCol < endCol && visibleCol + segmentWidth > startCol;
+      result += selected ? this.applyMarkdownStyle(style, segment) : segment;
+      visibleCol += segmentWidth;
+      index += segment.length;
+    }
+
+    return result;
+  }
+
+  private applyMarkdownStyle(style: MarkdownHighlightStyle, text: string): string {
+    const theme = this.syntaxTheme;
+    switch (style) {
+      case "heading": return theme.fg("mdHeading", theme.bold(text));
+      case "link": return theme.fg("mdLink", text);
+      case "linkUrl": return theme.fg("mdLinkUrl", text);
+      case "code": return theme.fg("mdCode", text);
+      case "codeBlock": return theme.fg("mdCodeBlock", text);
+      case "codeBlockBorder": return theme.fg("mdCodeBlockBorder", text);
+      case "quote": return theme.fg("mdQuote", text);
+      case "quoteBorder": return theme.fg("mdQuoteBorder", text);
+      case "hr": return theme.fg("mdHr", text);
+      case "listBullet": return theme.fg("mdListBullet", text);
+      case "bold": return theme.bold(text);
+      case "italic": return theme.italic(text);
+      case "strikethrough": return theme.strikethrough(text);
+    }
+  }
+
   private renderVisualOverlays(width: number, baseLines: string[]): string[] {
     if (this.mode !== "visual" || !this.visualState) return baseLines;
 
@@ -3342,10 +3467,11 @@ export class ModalEditor extends CustomEditor {
     if (width < 4) return super.render(width);
 
     const innerWidth = width - 2;
-    const visualLines = this.renderVisualOverlays(
+    const markdownLines = this.renderMarkdownOverlays(
       innerWidth,
       super.render(innerWidth),
     );
+    const visualLines = this.renderVisualOverlays(innerWidth, markdownLines);
     const flashLines = this.renderFlashOverlays(innerWidth, visualLines);
     const editorLines = this.stripInsertFakeCursor(
       this.renderGhostOverlay(innerWidth, flashLines),
@@ -3715,6 +3841,7 @@ export default function (pi: ExtensionAPI) {
           return true;
         },
         () => transcriptMode,
+        appTheme,
       );
       activeEditor = editor;
       return editor;
