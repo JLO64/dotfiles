@@ -38,7 +38,7 @@ Use `fd` instead of `find` and `rg` instead of `grep`.
 
 ## Edit Policy
 
-Before writing, editing, creating, or deleting any file—including temporary files—present the proposed change and obtain the user's explicit permission.
+Before writing, editing, creating, or deleting any file—including temporary files—present the proposed change and obtain the user's explicit permission. When editing a file that you have already worked on in a session, it is not needed to obtain permission again.
 
 Subagents may edit without reconfirming when their task states that the user approved edits or directly requested implementation in the current session. Otherwise, ask for clarification.
 
