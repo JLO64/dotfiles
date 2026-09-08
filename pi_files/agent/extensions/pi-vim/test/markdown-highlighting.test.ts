@@ -94,4 +94,18 @@ describe("Markdown input highlighting", () => {
     const lines = [String.raw`Ignore \@README.md and me@example.com, but color @someone.`];
     expect(highlightedText(lines, "code")).toEqual(["@someone"]);
   });
+
+  test("colors subagent references like inline code without matching headings", () => {
+    const lines = [
+      "Ask #online-researcher and #local-researcher.",
+      String.raw`Ignore \#reviewer.`,
+      "# Markdown heading",
+    ];
+
+    expect(highlightedText(lines, "code")).toEqual([
+      "#online-researcher",
+      "#local-researcher",
+    ]);
+    expect(highlightedText(lines, "heading")).toEqual(["# Markdown heading"]);
+  });
 });

@@ -79,6 +79,20 @@ function markFileReferences(line: string, target: MutableLineStyles): void {
   }
 }
 
+function markAgentReferences(line: string, target: MutableLineStyles): void {
+  const reference = /#[^\s#]+/g;
+  for (const match of line.matchAll(reference)) {
+    if (match.index === undefined || isEscaped(line, match.index)) continue;
+    const previous = match.index > 0 ? line[match.index - 1]! : "";
+    // Match the same start boundary used by pi-vim's agent autocomplete.
+    if (previous && !/\s/.test(previous)) continue;
+
+    let end = match.index + match[0].length;
+    while (end > match.index + 1 && /[.,;!?)]/.test(line[end - 1]!)) end--;
+    if (end > match.index + 1) mark(target, match.index, end, "code", 70);
+  }
+}
+
 function spansFromStyles(styles: Array<MarkdownHighlightStyle | undefined>): MarkdownHighlightSpan[] {
   const spans: MarkdownHighlightSpan[] = [];
   let start = 0;
@@ -161,6 +175,7 @@ export function getMarkdownHighlightSpans(lines: readonly string[]): MarkdownHig
     markMatches(line, /(?<!\*)\*(?=\S)(?:.*?\S)\*(?!\*)|(?<!_)_(?=\S)(?:.*?\S)_(?!_)/g, target, "italic", 52);
 
     markFileReferences(line, target);
+    markAgentReferences(line, target);
     markMatches(line, /(`+)([^`\n]|(?!\1)`)*?\1/g, target, "code", 80);
 
     result.push(spansFromStyles(target.styles));
