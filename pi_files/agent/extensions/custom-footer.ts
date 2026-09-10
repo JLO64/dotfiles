@@ -143,10 +143,12 @@ interface ChatGPTUsageResponse {
 		primary_window?: {
 			used_percent?: number;
 			reset_at?: number;
+			reset_after_seconds?: number;
 		};
 		secondary_window?: {
 			used_percent?: number;
 			reset_at?: number;
+			reset_after_seconds?: number;
 		};
 	};
 	data?: {
@@ -197,7 +199,34 @@ function readOpenAICodexAccessToken(): string | null {
 	return null;
 }
 
-async function fetchChatGPTPlusPercent(): Promise<number | null> {
+interface ChatGPTPlusUsage {
+	usedPercent: number;
+	resetAt: number | null;
+}
+
+function getResetAt(
+	window: { reset_at?: number; reset_after_seconds?: number } | undefined,
+): number | null {
+	if (typeof window?.reset_after_seconds === "number") {
+		return Date.now() + window.reset_after_seconds * 1000;
+	}
+	if (typeof window?.reset_at === "number") {
+		return window.reset_at > 1e12 ? window.reset_at : window.reset_at * 1000;
+	}
+	return null;
+}
+
+function formatResetDuration(resetAt: number): string {
+	const totalMinutes = Math.max(0, Math.ceil((resetAt - Date.now()) / 60000));
+	const days = Math.floor(totalMinutes / 1440);
+	const hours = Math.floor((totalMinutes % 1440) / 60);
+	const minutes = totalMinutes % 60;
+	if (days > 0) return `${days}d ${hours}h`;
+	if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+	return `${minutes}m`;
+}
+
+async function fetchChatGPTPlusUsage(): Promise<ChatGPTPlusUsage | null> {
 	const authPath = join(homedir(), ".pi", "agent", "auth.json");
 	let accountId: string | null = null;
 	if (existsSync(authPath)) {
@@ -235,7 +264,10 @@ async function fetchChatGPTPlusPercent(): Promise<number | null> {
 		return null;
 	}
 
-	return Math.max(0, Math.min(100, Math.round(usedPercent)));
+	return {
+		usedPercent: Math.max(0, Math.min(100, Math.round(usedPercent))),
+		resetAt: getResetAt(primary),
+	};
 }
 
 // ─── Extension ────────────────────────────────────────────────────────────────
@@ -284,7 +316,7 @@ export default function (pi: ExtensionAPI) {
 			timerState.requestRender = () => tui.requestRender();
 
 			let disposed = false;
-			let chatGPTPlusPercent: number | null = null;
+			let chatGPTPlusUsage: ChatGPTPlusUsage | null = null;
 			let refreshInFlight = false;
 			let refreshQueued = false;
 
@@ -297,9 +329,9 @@ export default function (pi: ExtensionAPI) {
 
 				refreshInFlight = true;
 				try {
-					const percent = await fetchChatGPTPlusPercent();
+					const usage = await fetchChatGPTPlusUsage();
 					if (disposed) return;
-					chatGPTPlusPercent = percent;
+					chatGPTPlusUsage = usage;
 					tui.requestRender();
 				} catch {
 					// Keep the last known value when the usage endpoint is unavailable.
@@ -465,14 +497,19 @@ export default function (pi: ExtensionAPI) {
 					// Cost display: show ChatGPT Plus percentage for openai-codex
 					let costStr: string;
 					if (ctx.model?.provider === "openai-codex") {
-						if (chatGPTPlusPercent === null) {
+						if (chatGPTPlusUsage === null) {
 							costStr = "—";
-						} else if (chatGPTPlusPercent > 80) {
-							costStr = theme.fg("error", `${chatGPTPlusPercent}%`);
-						} else if (chatGPTPlusPercent > 50) {
-							costStr = theme.fg("warning", `${chatGPTPlusPercent}%`);
 						} else {
-							costStr = `${chatGPTPlusPercent}%`;
+							const { usedPercent, resetAt } = chatGPTPlusUsage;
+							const percentStr =
+								usedPercent > 80
+									? theme.fg("error", `${usedPercent}%`)
+									: usedPercent > 50
+										? theme.fg("warning", `${usedPercent}%`)
+										: `${usedPercent}%`;
+							costStr = resetAt === null
+								? percentStr
+								: `${percentStr}${theme.fg("dim", " reset in ")}${formatResetDuration(resetAt)}`;
 						}
 					} else if (streamingState.isStreaming && streamingCost > 0) {
 						const baseCost = totalCost > 0 ? totalCost : 0;
