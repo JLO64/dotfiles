@@ -1,0 +1,12 @@
+{
+  "name": "pi-vim",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cspell-lib": "10.3.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}

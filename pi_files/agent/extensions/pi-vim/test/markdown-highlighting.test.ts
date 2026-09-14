@@ -4,6 +4,7 @@ import {
   type MarkdownHighlightStyle,
 } from "../markdown-highlighting.ts";
 import { ModalEditor } from "../index.ts";
+import { SpellcheckService } from "../spellcheck.ts";
 
 function highlightedText(lines: string[], style: MarkdownHighlightStyle): string[] {
   const spans = getMarkdownHighlightSpans(lines);
@@ -40,6 +41,21 @@ describe("Markdown input highlighting", () => {
     const rendered = editor.render(80).join("\n");
     expect(rendered).toContain("\x1b[31m@\x1b[39m");
     expect(rendered).toContain("\x1b[31m`\x1b[39m");
+  });
+
+  test("composes spell underlines with Markdown styling", () => {
+    const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+    const appTheme = {
+      fg: (_color: string, text: string) => `\x1b[34m${text}\x1b[39m`,
+      bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+      italic: (text: string) => text,
+      strikethrough: (text: string) => text,
+    };
+    const spellcheck = new SpellcheckService("/unused");
+    (spellcheck as any).spans = [{ line: 0, start: 2, end: 6, word: "typo" }];
+    const editor = new ModalEditor(tui as any, { borderColor: (text: string) => text, selectList: {} } as any, { matches: () => false } as any, null, null, null, undefined, undefined, appTheme, spellcheck);
+    editor.setText("**typo**");
+    expect(editor.render(80).join("\n")).toContain("\x1b[31;4m");
   });
 
   test("recognizes common block syntax", () => {

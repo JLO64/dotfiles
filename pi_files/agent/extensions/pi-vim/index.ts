@@ -62,6 +62,7 @@
 import {
   copyToClipboard,
   CustomEditor,
+  getAgentDir,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -85,6 +86,7 @@ import {
 } from "./zsh-history.js";
 import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
 import { createAgentAndSkillAutocompleteProvider } from "./autocomplete.js";
+import { SpellcheckService, type SpellSpan } from "./spellcheck.js";
 import {
   getRaisedTabLayout,
   TranscriptModeBadge,
@@ -231,6 +233,7 @@ export class ModalEditor extends CustomEditor {
     private readonly advanceTranscriptCycle?: (advance: boolean) => boolean,
     private readonly getTranscriptMode?: () => TranscriptMode,
     syntaxTheme?: any,
+    private readonly spellcheck?: SpellcheckService,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
@@ -280,6 +283,7 @@ export class ModalEditor extends CustomEditor {
       this.clearPendingState();
     }
     super.setText(text);
+    this.spellcheck?.schedule(this.getLines());
   }
 
   private captureSnapshot(): EditorSnapshot {
@@ -404,6 +408,7 @@ export class ModalEditor extends CustomEditor {
     editor.onChange = (text: string) => {
       originalOnChange?.(text);
       this.centralInvalidationCheck();
+      this.spellcheck?.schedule(this.getLines());
     };
 
     this.onChangeHooked = true;
@@ -3108,6 +3113,85 @@ export class ModalEditor extends CustomEditor {
     }
   }
 
+  private renderSpellcheckOverlays(width: number, baseLines: string[]): string[] {
+    const spansByLine = new Map<number, SpellSpan[]>();
+    for (const span of this.spellcheck?.getSpans() ?? []) {
+      const spans = spansByLine.get(span.line) ?? [];
+      spans.push(span);
+      spansByLine.set(span.line, spans);
+    }
+    if (spansByLine.size === 0) return baseLines;
+
+    const paddingX = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
+    const contentWidth = Math.max(1, width - paddingX * 2);
+    const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+    const leftPadding = " ".repeat(paddingX);
+    const layoutLines = this.buildFlashLayout(layoutWidth);
+    const cursorLayoutIndex = this.findLayoutLineIndex(layoutLines, this.getCursor());
+    if (cursorLayoutIndex === -1) return baseLines;
+    const terminalRows = (this as unknown as { tui?: { terminal?: { rows: number } } }).tui?.terminal?.rows ?? 24;
+    const maxVisibleLines = Math.max(5, Math.floor(terminalRows * 0.3));
+    const scrollOffset = this.getRenderedScrollOffset(layoutLines.length, maxVisibleLines);
+    const result = [...baseLines];
+
+    for (let layoutIndex = scrollOffset; layoutIndex < layoutLines.length && layoutIndex < scrollOffset + maxVisibleLines; layoutIndex++) {
+      const renderedIndex = 1 + layoutIndex - scrollOffset;
+      if (renderedIndex >= baseLines.length - 1) break;
+      const layout = layoutLines[layoutIndex]!;
+      const spans = spansByLine.get(layout.logicalLine);
+      if (!spans) continue;
+      const rendered = result[renderedIndex]!;
+      if (!rendered.startsWith(leftPadding)) continue;
+      const endIndex = rendered.length - (paddingX > 0 ? paddingX : 0);
+      let content = rendered.slice(leftPadding.length, endIndex);
+      for (const span of spans) {
+        const start = Math.max(span.start, layout.startCol);
+        const end = Math.min(span.end, layout.endCol);
+        if (end <= start) continue;
+        const startCol = this.computeVisibleColumn(layout.text, start - layout.startCol);
+        const endCol = this.computeVisibleColumn(layout.text, end - layout.startCol);
+        if (startCol === null || endCol === null) continue;
+        content = this.styleSpellcheckRange(content, startCol, endCol);
+      }
+      result[renderedIndex] = rendered.slice(0, leftPadding.length) + content + rendered.slice(endIndex);
+    }
+    return result;
+  }
+
+  private styleSpellcheckRange(content: string, startCol: number, endCol: number): string {
+    let result = "";
+    let visibleCol = 0;
+    let index = 0;
+    let foregroundRestore = "";
+    while (index < content.length) {
+      if (content[index] === "\x1b") {
+        const ansiEnd = this.findAnsiSequenceEnd(content, index);
+        if (ansiEnd !== null) {
+          const ansi = content.slice(index, ansiEnd);
+          const sgr = ansi.match(/^\x1b\[([\d;]*)m$/);
+          if (sgr) {
+            const codes = sgr[1]!.split(";").filter(Boolean).map(Number);
+            if (codes.includes(0) || codes.includes(39)) foregroundRestore = "";
+            if (codes.some((code) => (code >= 30 && code <= 37) || (code >= 90 && code <= 97) || code === 38)) foregroundRestore = ansi;
+          }
+          result += ansi;
+          index = ansiEnd;
+          continue;
+        }
+      }
+      const grapheme = getLineGraphemes(content.slice(index))[0];
+      if (!grapheme) break;
+      const segment = content.slice(index, index + grapheme.end);
+      const segmentWidth = visibleWidth(segment);
+      const selected = visibleCol < endCol && visibleCol + segmentWidth > startCol;
+      // Selective cleanup preserves backgrounds; restore an active Markdown color.
+      result += selected ? `\x1b[31;4m${segment}\x1b[39;24m${foregroundRestore}` : segment;
+      visibleCol += segmentWidth;
+      index += segment.length;
+    }
+    return result;
+  }
+
   private renderVisualOverlays(width: number, baseLines: string[]): string[] {
     if (this.mode !== "visual" || !this.visualState) return baseLines;
 
@@ -3471,7 +3555,8 @@ export class ModalEditor extends CustomEditor {
       innerWidth,
       super.render(innerWidth),
     );
-    const visualLines = this.renderVisualOverlays(innerWidth, markdownLines);
+    const spellingLines = this.renderSpellcheckOverlays(innerWidth, markdownLines);
+    const visualLines = this.renderVisualOverlays(innerWidth, spellingLines);
     const flashLines = this.renderFlashOverlays(innerWidth, visualLines);
     const editorLines = this.stripInsertFakeCursor(
       this.renderGhostOverlay(innerWidth, flashLines),
@@ -3778,6 +3863,24 @@ export default function (pi: ExtensionAPI) {
     terminal?: { write: (data: string) => void };
   } | null = null;
   let activeEditor: ModalEditor | null = null;
+  const spellcheck = new SpellcheckService(getAgentDir(), () => activeEditor?.requestRender());
+  pi.registerCommand("spell-add", {
+    description: "Add a word to pi-vim's spellcheck dictionary",
+    handler: async (args, ctx) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts.length !== 1) {
+        ctx.ui.notify("Usage: /spell-add <word>", "error");
+        return;
+      }
+      await spellcheck.start();
+      if (!await spellcheck.addWord(parts[0]!)) {
+        ctx.ui.notify("Spellcheck words must be prose words (letters, apostrophes, or hyphens).", "error");
+        return;
+      }
+      activeEditor?.requestRender();
+      ctx.ui.notify(`Added “${parts[0]}” to pi-vim spellcheck.`, "info");
+    },
+  });
   let pendingQuestions: string | null = null;
   let transcriptCycle: (() => void) | undefined;
   let transcriptMode: TranscriptMode = "COLLAPSED";
@@ -3803,6 +3906,7 @@ export default function (pi: ExtensionAPI) {
     // trigger a render flicker on agent start.
     ctx.ui.setWorkingVisible(false);
     historyService.start();
+    void spellcheck.start();
     ctx.ui.addAutocompleteProvider?.((current) =>
       createAgentAndSkillAutocompleteProvider(current, ctx.cwd, () => pi.getCommands()),
     );
@@ -3842,6 +3946,7 @@ export default function (pi: ExtensionAPI) {
         },
         () => transcriptMode,
         appTheme,
+        spellcheck,
       );
       activeEditor = editor;
       return editor;
@@ -3885,6 +3990,7 @@ export default function (pi: ExtensionAPI) {
     removeTranscriptModeListener?.();
     transcriptCycle = undefined;
     historyService.dispose();
+    spellcheck.dispose();
     activeEditor?.unlock();
     activeEditor = null;
     pendingQuestions = null;

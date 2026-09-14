@@ -41,6 +41,7 @@ ${PREPOPULATED_MULTILINE_BODY}
 
 function setupExtension() {
   const handlers: Record<string, (...args: any[]) => any> = {};
+  const commands: Record<string, any> = {};
   let editor: any = null;
 
   const mockCtx = {
@@ -64,6 +65,7 @@ function setupExtension() {
     on: (event: string, handler: (...args: any[]) => any) => {
       handlers[event] = handler;
     },
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
   };
 
   extension(mockPi as any);
@@ -74,12 +76,29 @@ function setupExtension() {
 
   return {
     handlers,
+    commands,
     editor,
     cleanup: () => handlers["session_shutdown"]?.({}, mockCtx),
   };
 }
 
 describe("session registration", () => {
+  test("registers the spell-add command", () => {
+    const { commands, cleanup } = setupExtension();
+    expect(commands["spell-add"]?.description).toContain("spellcheck");
+    cleanup();
+  });
+
+  test("rejects multi-word spell-add arguments", async () => {
+    const { commands, cleanup } = setupExtension();
+    const notices: Array<[string, string]> = [];
+    await commands["spell-add"].handler("two words", {
+      ui: { notify: (message: string, level: string) => notices.push([message, level]) },
+    });
+    expect(notices).toEqual([["Usage: /spell-add <word>", "error"]]);
+    cleanup();
+  });
+
   test("hides the built-in working loader before installing the editor on session_start", () => {
     const handlers: Record<string, (...args: any[]) => void> = {};
     const events: string[] = [];
@@ -105,6 +124,7 @@ describe("session registration", () => {
       on: (event: string, handler: (...args: any[]) => void) => {
         handlers[event] = handler;
       },
+      registerCommand: () => {},
     };
 
     extension(mockPi as any);
