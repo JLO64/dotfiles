@@ -104,6 +104,16 @@ describe("spellcheck dictionaries", () => {
     }
   });
 
+  test("excludes unfinished trailing words on every line but checks punctuated ones", async () => {
+    const service = new SpellcheckService(join(tmpdir(), "pi-vim-spellcheck-unused"));
+    try {
+      await scan(service, ["This is checke", "This is beter!"]);
+      expect(service.getSpans()).toEqual([{ line: 1, start: 8, end: 13, word: "beter" }]);
+    } finally {
+      service.dispose();
+    }
+  });
+
   test("preserves Unicode UTF-16 offsets when excluding the trailing word", async () => {
     const service = new SpellcheckService(join(tmpdir(), "pi-vim-spellcheck-unused"));
     try {

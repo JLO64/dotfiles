@@ -57,8 +57,8 @@ export function maskSpellcheckLine(line: string, markdownSpans: readonly { start
 }
 
 /**
- * Mask the active trailing word until whitespace or punctuation terminates it.
- * This intentionally follows the buffer end only; cursor-position exclusion is not available here.
+ * Mask an unfinished line-final word until whitespace or punctuation terminates it.
+ * Cursor-position exclusion is not available here.
  */
 export function maskUnfinishedTrailingWord(line: string): string {
   const match = line.match(/\p{L}[\p{L}'’-]*$/u);
@@ -147,7 +147,7 @@ export class SpellcheckService {
         if (this.disposed || revision !== this.revision) return;
         const raw = lines[lineIndex] ?? "";
         const masked = maskSpellcheckLine(raw, markdown[lineIndex] ?? []);
-        const text = lineIndex === lines.length - 1 ? maskUnfinishedTrailingWord(masked) : masked;
+        const text = maskUnfinishedTrailingWord(masked);
         const result = await checkTextDocument(
           { uri: "untitled:pi-vim", text, languageId: "plaintext", locale: "en" },
           { noConfigSearch: true },
