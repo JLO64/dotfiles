@@ -116,9 +116,8 @@ In-scope paths and non-goals.
 Available subagents:
 
 - `online-researcher` — Web research, documentation, changelogs, standards, and external verification.
-- `local-researcher` — Read-only filesystem and codebase exploration.
+- `local-researcher` — Read-only filesystem and codebase exploration. Can't run bash commands.
 - `code-editor` — Approved implementation work.
-- `code-editor-pro` — Premium implementation work for complex tasks; requires prior user permission.
 - `reviewer` — Read-only review of files or uncommitted changes.
 - `git-operator` — Git CLI (`git`) operations only; it must not run GitHub CLI (`gh`) commands.
 
@@ -127,4 +126,3 @@ Rules:
 - Delegate all Git CLI (`git`) operations to `git-operator` unless otherwise instructed by the user. Do not delegate GitHub CLI (`gh`) commands to it.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
-- Before invoking `code-editor-pro` or `reviewer`, ask the user for permission.
