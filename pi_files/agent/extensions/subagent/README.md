@@ -4,7 +4,7 @@ The subagent extension launches each agent in a separate pi process. Agent profi
 
 ## Agent profile fields
 
-Agent profiles are Markdown files under `~/.pi/agent/agents/` or a project's `.pi/agents/` directory.
+Public agent profiles are Markdown files under `~/.pi/agent/agents/` or a project's `.pi/agents/` directory. Restricted agent profiles use the parallel `restricted-agents/` directory described below.
 
 ```yaml
 ---
@@ -77,6 +77,23 @@ project/.pi/restricted-skills/serve-docker/SKILL.md
 
 Absolute paths are supported and remain absolute. All configured resources must exist when the agent is invoked; otherwise the subagent returns an error containing the missing resolved path.
 
+## Restricted agents
+
+Restricted agents are profiles that remain absent from normal agent discovery and model-facing agent lists. Store them as:
+
+```text
+~/.pi/agent/restricted-agents/<name>.md
+project/.pi/restricted-agents/<name>.md
+```
+
+The filename must exactly match the profile's `name` frontmatter. Restricted names must contain only letters, numbers, `.`, `_`, and `-`, and must begin with a letter or number.
+
+The subagent tool resolves a restricted profile only when invoked with its exact name. It does not scan or enumerate restricted profiles to the model. The normal `agentScope` rules apply: `"user"` checks only the global directory, `"project"` checks only the nearest project directory, and `"both"` prefers the project profile within the restricted category. Public profiles are resolved first, so any public profile takes precedence over any restricted profile with the same name, regardless of source.
+
+Pi-vim includes restricted agents in its user-facing `#` autocomplete. Selecting one inserts only `#<name>` into the editor; it does not inject the profile or automatically invoke the subagent. The user must tell the main agent to use that exact name.
+
+Restricted-agent handling limits model discovery; it is not a filesystem security boundary. A process with suitable filesystem tools and permissions may still inspect the profile files.
+
 ## Restricted resource locations
 
 `restricted-extensions` and `restricted-skills` are organizational conventions. Pi does not auto-discover these directory names.
@@ -86,6 +103,8 @@ Recommended global layout:
 ```text
 ~/.pi/agent/
 ├── agents/
+│   └── public-researcher.md
+├── restricted-agents/
 │   └── online-researcher.md
 └── restricted-extensions/
     └── web-search.ts
@@ -95,7 +114,7 @@ Recommended project layout:
 
 ```text
 project/.pi/
-├── agents/
+├── restricted-agents/
 │   └── serve-docker-runner.md
 └── restricted-skills/
     └── serve-docker/

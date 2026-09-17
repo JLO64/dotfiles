@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import { createAgentAndSkillAutocompleteProvider } from "../autocomplete.ts";
+import { createAgentAndSkillAutocompleteProvider, loadAgentItemsFromDirs } from "../autocomplete.ts";
 
 const fallback: AutocompleteProvider = {
   triggerCharacters: [],
@@ -29,6 +32,33 @@ describe("agent and skill autocomplete", () => {
     expect(result?.prefix).toBe("#local");
     expect(result?.items.some((item) => item.value === "#local-researcher")).toBe(true);
     expect(result?.items.every((item) => item.description === undefined)).toBe(true);
+  });
+
+  test("includes restricted profiles with public and project precedence", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-vim-agents-"));
+    const userAgents = path.join(root, "user-agents");
+    const projectAgents = path.join(root, "project-agents");
+    const userRestricted = path.join(root, "user-restricted");
+    const projectRestricted = path.join(root, "project-restricted");
+    for (const directory of [userAgents, projectAgents, userRestricted, projectRestricted]) fs.mkdirSync(directory);
+    const profile = (directory: string, name: string, description: string) =>
+      fs.writeFileSync(path.join(directory, `${name}.md`), `---\nname: ${name}\ndescription: ${description}\n---\n`);
+
+    try {
+      profile(userRestricted, "restricted", "user restricted");
+      profile(projectRestricted, "restricted", "project restricted");
+      profile(userAgents, "restricted", "user public");
+      profile(projectAgents, "restricted", "project public");
+      profile(projectRestricted, "project-only", "project restricted");
+      profile(userRestricted, "unsafe name", "unsafe");
+
+      const items = loadAgentItemsFromDirs(userAgents, projectAgents, userRestricted, projectRestricted);
+      expect(items.map((item) => item.value)).toEqual(["#restricted", "#project-only"]);
+      expect(items.find((item) => item.value === "#restricted")?.searchText).toContain("project public");
+      expect(items.some((item) => item.value === "#unsafe name")).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("offers Pi-resolved skills, including the secure-webapp project skills", async () => {

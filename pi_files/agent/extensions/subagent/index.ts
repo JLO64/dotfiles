@@ -30,7 +30,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { type AgentConfig, type AgentScope, discoverAgents, resolveRestrictedAgent } from "./agents.ts";
 import { buildAgentResourceArgs } from "./resource-config.ts";
 import { resolveAgentModel } from "./model-config.ts";
 import {
@@ -575,7 +575,7 @@ function captureGitBranch(cwd: string): Promise<string | undefined> {
 
 async function runSingleAgent(
 	defaultCwd: string,
-	agents: AgentConfig[],
+	agent: AgentConfig | undefined,
 	agentName: string,
 	task: string,
 	cwd: string | undefined,
@@ -585,17 +585,14 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 ): Promise<SingleResult> {
-	const agent = agents.find((a) => a.name === agentName);
-
 	if (!agent) {
-		const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
 		return {
 			agent: agentName,
 			agentSource: "unknown",
 			task,
 			exitCode: 1,
 			messages: [],
-			stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
+			stderr: `Unknown agent: "${agentName}".`,
 			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 			step,
 			contextTokenLimit,
@@ -866,6 +863,8 @@ export default function (pi: ExtensionAPI) {
 			const agentScope: AgentScope = params.agentScope ?? "user";
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
+			const resolveAgent = (name: string) =>
+				agents.find((agent) => agent.name === name) ?? resolveRestrictedAgent(ctx.cwd, agentScope, name);
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
@@ -918,14 +917,15 @@ export default function (pi: ExtensionAPI) {
 							}
 						: undefined;
 
+					const agent = resolveAgent(step.agent);
 					const result = await runSingleAgent(
 						ctx.cwd,
-						agents,
+						agent,
 						step.agent,
 						taskWithContext,
 						step.cwd,
 						i + 1,
-						resolveContextTokenLimit(step.contextTokenLimit, agents.find((agent) => agent.name === step.agent)?.contextTokenLimit),
+						resolveContextTokenLimit(step.contextTokenLimit, agent?.contextTokenLimit),
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
@@ -966,6 +966,7 @@ export default function (pi: ExtensionAPI) {
 
 				// Track all results for streaming updates
 				const allResults: SingleResult[] = new Array(params.tasks.length);
+				const taskAgents = params.tasks.map((task) => resolveAgent(task.agent));
 
 				// Initialize placeholder results
 				for (let i = 0; i < params.tasks.length; i++) {
@@ -979,7 +980,7 @@ export default function (pi: ExtensionAPI) {
 						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 						contextTokenLimit: resolveContextTokenLimit(
 							params.tasks[i].contextTokenLimit,
-							agents.find((agent) => agent.name === params.tasks![i].agent)?.contextTokenLimit,
+							taskAgents[i]?.contextTokenLimit,
 						),
 						contextWarnings: [],
 						activity: [],
@@ -1000,14 +1001,15 @@ export default function (pi: ExtensionAPI) {
 				};
 
 				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+					const agent = taskAgents[index];
 					const result = await runSingleAgent(
 						ctx.cwd,
-						agents,
+						agent,
 						t.agent,
 						t.task,
 						t.cwd,
 						undefined,
-						resolveContextTokenLimit(t.contextTokenLimit, agents.find((agent) => agent.name === t.agent)?.contextTokenLimit),
+						resolveContextTokenLimit(t.contextTokenLimit, agent?.contextTokenLimit),
 						signal,
 						// Per-task update callback
 						(partial) => {
@@ -1047,14 +1049,15 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (params.agent && params.task) {
+				const agent = resolveAgent(params.agent);
 				const result = await runSingleAgent(
 					ctx.cwd,
-					agents,
+					agent,
 					params.agent,
 					params.task,
 					params.cwd,
 					undefined,
-					resolveContextTokenLimit(params.contextTokenLimit, agents.find((agent) => agent.name === params.agent)?.contextTokenLimit),
+					resolveContextTokenLimit(params.contextTokenLimit, agent?.contextTokenLimit),
 					signal,
 					onUpdate,
 					makeDetails("single"),

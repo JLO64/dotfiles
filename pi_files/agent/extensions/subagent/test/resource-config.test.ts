@@ -7,6 +7,7 @@ function expect(actual: unknown) {
 		toBe(expected: unknown) { assert.equal(actual, expected); },
 		toEqual(expected: unknown) { assert.deepEqual(actual, expected); },
 		toContain(expected: string) { assert.ok(String(actual).includes(expected)); },
+		toBeUndefined() { assert.equal(actual, undefined); },
 		toThrow(expected: string) { assert.throws(actual as () => unknown, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))); },
 		get not() { return { toBeNull() { assert.notEqual(actual, null); } }; },
 	};

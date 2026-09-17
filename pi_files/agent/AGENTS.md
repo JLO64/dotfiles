@@ -126,3 +126,7 @@ Rules:
 - Delegate all Git CLI (`git`) operations to `git-operator` unless otherwise instructed by the user. Do not delegate GitHub CLI (`gh`) commands to it.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
+
+### Restricted subagents
+
+Some subagents are intentionally absent from model-facing discovery, listings, and tool schemas, while remaining available in the user's `#` autocomplete. Invoke a restricted subagent only when the user explicitly supplies its exact name. Trust that user-supplied name even when it does not appear in available-agent output. Do not search for, enumerate, infer, guess, or substitute restricted subagent names.

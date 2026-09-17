@@ -16,10 +16,10 @@ type PickerItem = AutocompleteItem & { searchText: string };
 type AgentSource = "user" | "project";
 type SkillCommand = { name: string; description?: string; source: string };
 
-function findNearestProjectAgentsDir(cwd: string): string | null {
+function findNearestProjectAgentsDir(cwd: string, directoryName = "agents"): string | null {
   let directory = cwd;
   while (true) {
-    const candidate = path.join(directory, ".pi", "agents");
+    const candidate = path.join(directory, ".pi", directoryName);
     try {
       if (fs.statSync(candidate).isDirectory()) return candidate;
     } catch {
@@ -32,7 +32,11 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
   }
 }
 
-function loadAgentsFromDir(directory: string, source: AgentSource): PickerItem[] {
+function isSafeAgentName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && name !== "." && name !== "..";
+}
+
+function loadAgentsFromDir(directory: string, source: AgentSource, restricted = false): PickerItem[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(directory, { withFileTypes: true });
@@ -49,6 +53,7 @@ function loadAgentsFromDir(directory: string, source: AgentSource): PickerItem[]
       const content = fs.readFileSync(path.join(directory, entry.name), "utf8");
       const { frontmatter } = parseFrontmatter<Record<string, string>>(content);
       if (!frontmatter.name || !frontmatter.description) return [];
+      if (restricted && (!isSafeAgentName(frontmatter.name) || entry.name !== `${frontmatter.name}.md`)) return [];
 
       return [{
         value: `#${frontmatter.name}`,
@@ -61,21 +66,31 @@ function loadAgentsFromDir(directory: string, source: AgentSource): PickerItem[]
   });
 }
 
-function loadAgentItems(cwd: string): PickerItem[] {
+export function loadAgentItemsFromDirs(
+  userAgentsDir: string,
+  projectAgentsDir: string | null,
+  userRestrictedAgentsDir: string,
+  projectRestrictedAgentsDir: string | null,
+): PickerItem[] {
   const byName = new Map<string, PickerItem>();
-  for (const item of loadAgentsFromDir(path.join(getAgentDir(), "agents"), "user")) {
-    byName.set(item.value, item);
+  for (const item of loadAgentsFromDir(userRestrictedAgentsDir, "user", true)) byName.set(item.value, item);
+  if (projectRestrictedAgentsDir) {
+    for (const item of loadAgentsFromDir(projectRestrictedAgentsDir, "project", true)) byName.set(item.value, item);
   }
-
-  const projectAgentsDir = findNearestProjectAgentsDir(cwd);
+  for (const item of loadAgentsFromDir(userAgentsDir, "user")) byName.set(item.value, item);
   if (projectAgentsDir) {
-    for (const item of loadAgentsFromDir(projectAgentsDir, "project")) {
-      // Project-local definitions take precedence, consistent with the subagent extension.
-      byName.set(item.value, item);
-    }
+    for (const item of loadAgentsFromDir(projectAgentsDir, "project")) byName.set(item.value, item);
   }
-
   return [...byName.values()];
+}
+
+function loadAgentItems(cwd: string): PickerItem[] {
+  return loadAgentItemsFromDirs(
+    path.join(getAgentDir(), "agents"),
+    findNearestProjectAgentsDir(cwd),
+    path.join(getAgentDir(), "restricted-agents"),
+    findNearestProjectAgentsDir(cwd, "restricted-agents"),
+  );
 }
 
 function loadSkillItems(getCommands: () => readonly SkillCommand[]): PickerItem[] {

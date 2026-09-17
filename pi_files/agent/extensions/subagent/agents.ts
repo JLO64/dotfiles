@@ -124,16 +124,63 @@ function isDirectory(p: string): boolean {
 	}
 }
 
-function findNearestProjectAgentsDir(cwd: string): string | null {
+function findNearestProjectAgentsDir(cwd: string, directoryName = "agents"): string | null {
 	let currentDir = cwd;
 	while (true) {
-		const candidate = path.join(currentDir, CONFIG_DIR_NAME, "agents");
+		const candidate = path.join(currentDir, CONFIG_DIR_NAME, directoryName);
 		if (isDirectory(candidate)) return candidate;
 
 		const parentDir = path.dirname(currentDir);
 		if (parentDir === currentDir) return null;
 		currentDir = parentDir;
 	}
+}
+
+export function isSafeAgentName(name: string): boolean {
+	return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && name !== "." && name !== "..";
+}
+
+export function loadRestrictedAgentFromDir(
+	dir: string,
+	source: "user" | "project",
+	name: string,
+): AgentConfig | undefined {
+	if (!isSafeAgentName(name)) return undefined;
+
+	const filePath = path.join(dir, `${name}.md`);
+	let content: string;
+	try {
+		content = fs.readFileSync(filePath, "utf-8");
+	} catch {
+		return undefined;
+	}
+
+	const agent = parseAgentContent(content, filePath, source);
+	return agent?.name === name ? agent : undefined;
+}
+
+export function resolveRestrictedAgentFromDirs(
+	name: string,
+	scope: AgentScope,
+	userDir: string,
+	projectDir: string | null,
+): AgentConfig | undefined {
+	if (!isSafeAgentName(name)) return undefined;
+	if (scope !== "user" && projectDir) {
+		const projectAgent = loadRestrictedAgentFromDir(projectDir, "project", name);
+		if (projectAgent) return projectAgent;
+	}
+	if (scope !== "project") return loadRestrictedAgentFromDir(userDir, "user", name);
+	return undefined;
+}
+
+export function resolveRestrictedAgent(cwd: string, scope: AgentScope, name: string): AgentConfig | undefined {
+	return resolveRestrictedAgentFromDirs(
+		name,
+		scope,
+		path.join(getAgentDir(), "restricted-agents"),
+		findNearestProjectAgentsDir(cwd, "restricted-agents"),
+	);
 }
 
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
