@@ -19,7 +19,9 @@ interface Resources {
 	contextFiles: string[];
 	skills: string[];
 	extensions: string[];
+	restrictedExtensions: string[];
 	subagents: string[];
+	restrictedSubagents: string[];
 }
 
 interface ChatGPTUsageResponse {
@@ -109,6 +111,28 @@ function discoverNamesInDir(dir: string): string[] {
 			const content = readFileSync(full, "utf-8");
 			const name = parseFrontmatterName(content) ?? basename(entry, ".md");
 			if (name.length > 0) names.push(name);
+		} catch {
+			// skip unreadable entries
+		}
+	}
+
+	return names;
+}
+
+function discoverExtensionNamesInDir(dir: string): string[] {
+	const names: string[] = [];
+	if (!existsSync(dir)) return names;
+
+	for (const entry of readdirSync(dir)) {
+		const full = join(dir, entry);
+		try {
+			if (statSync(full).isDirectory()) {
+				if (existsSync(join(full, "index.ts"))) {
+					names.push(formatExtensionName(`${entry}/`));
+				}
+			} else if (entry.endsWith(".ts")) {
+				names.push(formatExtensionName(entry));
+			}
 		} catch {
 			// skip unreadable entries
 		}
@@ -451,34 +475,26 @@ function discoverResources(): Resources {
 	discoverSkillsFromSettings(join(process.cwd(), ".pi", "settings.json"));
 
 	// extensions — .ts files and directories with index.ts
-	const extensionsDir = join(agentDir, "extensions");
-	const extensions: string[] = [];
-	if (existsSync(extensionsDir)) {
-		for (const entry of readdirSync(extensionsDir)) {
-			const full = join(extensionsDir, entry);
-			try {
-				if (statSync(full).isDirectory()) {
-					if (existsSync(join(full, "index.ts"))) {
-						extensions.push(formatExtensionName(`${entry}/`));
-					}
-				} else if (entry.endsWith(".ts")) {
-					extensions.push(formatExtensionName(entry));
-				}
-			} catch {
-				// skip unreadable entries
-			}
-		}
-	}
+	const extensions = discoverExtensionNamesInDir(join(agentDir, "extensions"));
 	// packages from settings (strip scheme + scope)
 	for (const pkg of (settings.packages as string[]) ?? []) {
 		extensions.push(formatExtensionName(String(pkg)));
 	}
 
-	// subagents — user agents + nearest project .pi/agents
-	const subagentNames = new Set<string>();
-	for (const name of discoverNamesInDir(join(agentDir, "agents"))) {
-		subagentNames.add(name);
+	// restricted extensions — global + nearest project .pi/restricted-extensions
+	const restrictedExtensions = discoverExtensionNamesInDir(
+		join(agentDir, "restricted-extensions"),
+	);
+	const projectRestrictedExtensionsDir = findNearestAncestorDir(
+		process.cwd(),
+		"restricted-extensions",
+	);
+	if (projectRestrictedExtensionsDir) {
+		restrictedExtensions.push(...discoverExtensionNamesInDir(projectRestrictedExtensionsDir));
 	}
+
+	// subagents — user agents + nearest project .pi/agents
+	const subagentNames = new Set<string>(discoverNamesInDir(join(agentDir, "agents")));
 	const projectAgentsDir = findNearestAncestorDir(process.cwd(), "agents");
 	if (projectAgentsDir) {
 		for (const name of discoverNamesInDir(projectAgentsDir)) {
@@ -487,7 +503,33 @@ function discoverResources(): Resources {
 	}
 	const subagents = Array.from(subagentNames).sort((a, b) => a.localeCompare(b));
 
-	return { version, scopedModels, contextFiles, skills, extensions, subagents };
+	// restricted subagents — global + nearest project, excluding public agent names
+	const restrictedSubagentNames = new Set<string>(
+		discoverNamesInDir(join(agentDir, "restricted-agents")),
+	);
+	const projectRestrictedAgentsDir = findNearestAncestorDir(
+		process.cwd(),
+		"restricted-agents",
+	);
+	if (projectRestrictedAgentsDir) {
+		for (const name of discoverNamesInDir(projectRestrictedAgentsDir)) {
+			restrictedSubagentNames.add(name);
+		}
+	}
+	const restrictedSubagents = Array.from(restrictedSubagentNames)
+		.filter((name) => !subagentNames.has(name))
+		.sort((a, b) => a.localeCompare(b));
+
+	return {
+		version,
+		scopedModels,
+		contextFiles,
+		skills,
+		extensions,
+		restrictedExtensions,
+		subagents,
+		restrictedSubagents,
+	};
 }
 
 // ─── Extension name formatting ───────────────────────────────────────────────
@@ -605,7 +647,7 @@ export default function (pi: ExtensionAPI) {
 			// offline or key missing — skip the line
 		}
 
-		// ── ChatGPT Plus usage ───────────────────────────────────────
+		// ── Codex usage ─────────────────────────────────────────────
 		let chatGPTUsage: { primary: ChatGPTUsageLinePart | null; secondary: ChatGPTUsageLinePart | null } | null = null;
 		try {
 			chatGPTUsage = await fetchChatGPTPlusUsage();
@@ -624,10 +666,10 @@ export default function (pi: ExtensionAPI) {
 				lines.push(formatLine("OpenRouter Credits", [creditsLine], theme));
 			}
 
-			// ChatGPT Plus usage
+			// Codex usage
 			if (chatGPTUsage) {
 				const chatGPTLine = formatChatGPTUsageLine(chatGPTUsage.primary, chatGPTUsage.secondary, theme);
-				if (chatGPTLine) lines.push(formatLine("ChatGPT Plus", [chatGPTLine], theme));
+				if (chatGPTLine) lines.push(formatLine("Codex Usage", [chatGPTLine], theme));
 			}
 
 			// scoped models
@@ -650,9 +692,19 @@ export default function (pi: ExtensionAPI) {
 				lines.push(formatLine("Extensions", r.extensions, theme));
 			}
 
+			// restricted extensions
+			if (r.restrictedExtensions.length > 0) {
+				lines.push(formatLine("Restricted Extensions", r.restrictedExtensions, theme));
+			}
+
 			// subagents
 			if (r.subagents.length > 0) {
-				lines.push(formatLine("Subagents", r.subagents, theme));
+				lines.push(formatLine("Agents", r.subagents, theme));
+			}
+
+			// restricted subagents
+			if (r.restrictedSubagents.length > 0) {
+				lines.push(formatLine("Restricted Agents", r.restrictedSubagents, theme));
 			}
 
 			const component = {
