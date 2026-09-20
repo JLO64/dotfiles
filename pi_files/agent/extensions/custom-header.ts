@@ -28,6 +28,9 @@ interface ChatGPTUsageResponse {
 	used_percent?: number;
 	remaining_percent?: number;
 	reset_at?: number;
+	rate_limit_reset_credits?: {
+		available_count?: number;
+	};
 	rate_limit?: {
 		primary_window?: {
 			used_percent?: number;
@@ -47,6 +50,14 @@ interface ChatGPTUsageResponse {
 		remaining_percent?: number;
 		reset_at?: number;
 	};
+}
+
+interface ChatGPTResetCreditsResponse {
+	available_count?: number;
+	credits?: {
+		status?: string;
+		expires_at?: string;
+	}[];
 }
 
 interface PiAuthFile {
@@ -169,6 +180,30 @@ function formatDurationShort(ms: number): string {
 	return `${minutes}m`;
 }
 
+function formatResetExpirationDuration(ms: number): string {
+	const totalMinutes = Math.max(0, Math.ceil(ms / 60000));
+	const days = Math.floor(totalMinutes / 1440);
+	const hours = Math.floor((totalMinutes % 1440) / 60);
+	if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+	return formatDurationShort(ms);
+}
+
+function availableResetCount(value: number | undefined): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	return Math.max(0, Math.trunc(value));
+}
+
+function parseISO8601(value: string | undefined): Date | null {
+	if (
+		typeof value !== "string" ||
+		!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+	) {
+		return null;
+	}
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatUsageWindowLabel(limitWindowSeconds: number | undefined): string {
 	if (
 		typeof limitWindowSeconds !== "number" ||
@@ -233,11 +268,14 @@ function readOpenAICodexAccessToken(): string | null {
 }
 
 type ChatGPTUsageLinePart = { used: number; duration: string };
-
-async function fetchChatGPTPlusUsage(): Promise<{
+type ChatGPTResetCredits = { availableCount: number | null; earliestExpiration: Date | null };
+type ChatGPTUsage = {
 	primary: ChatGPTUsageLinePart | null;
 	secondary: ChatGPTUsageLinePart | null;
-} | null> {
+	resetCredits: ChatGPTResetCredits | null;
+};
+
+async function fetchChatGPTPlusUsage(): Promise<ChatGPTUsage | null> {
 	const authPath = join(homedir(), ".pi", "agent", "auth.json");
 	let accountId: string | null = null;
 	if (existsSync(authPath)) {
@@ -264,6 +302,32 @@ async function fetchChatGPTPlusUsage(): Promise<{
 	const primary = body.rate_limit?.primary_window;
 	const secondary = body.rate_limit?.secondary_window;
 	const source = body.data ?? body;
+	const fallbackResetCount = availableResetCount(body.rate_limit_reset_credits?.available_count);
+
+	let resetCredits: ChatGPTResetCredits | null = fallbackResetCount === null
+		? null
+		: { availableCount: fallbackResetCount, earliestExpiration: null };
+	try {
+		const resetResp = await fetch(
+			"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+			{ headers, signal: AbortSignal.timeout(5000) },
+		);
+		if (resetResp.ok) {
+			const resetBody = (await resetResp.json()) as ChatGPTResetCreditsResponse;
+			const now = Date.now();
+			const earliestExpiration = resetBody.credits
+				?.filter((credit) => credit.status === "available")
+				.map((credit) => parseISO8601(credit.expires_at))
+				.filter((expiration): expiration is Date => expiration !== null && expiration.getTime() > now)
+				.sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+			resetCredits = {
+				availableCount: availableResetCount(resetBody.available_count) ?? fallbackResetCount,
+				earliestExpiration,
+			};
+		}
+	} catch {
+		// reset-credit enrichment is optional — retain usage data and its fallback count
+	}
 
 	const formatWindow = (
 		window:
@@ -300,6 +364,7 @@ async function fetchChatGPTPlusUsage(): Promise<{
 	return {
 		primary: formatWindow(primary),
 		secondary: formatWindow(secondary),
+		resetCredits,
 	};
 }
 
@@ -581,6 +646,23 @@ function formatChatGPTUsageLine(
 	return primaryPart ?? secondaryPart;
 }
 
+function formatChatGPTResetLine(
+	resetCredits: ChatGPTResetCredits | null,
+	// biome-ignore lint/suspicious/noExplicitAny: theme shape varies
+	theme: any,
+): string | null {
+	const count = resetCredits?.availableCount;
+	if (count === null || count === undefined) return null;
+
+	const dim = (s: string) => theme.fg("dim", s);
+	let line = `${count}${dim(" resets remaining")}`;
+	const expiration = resetCredits?.earliestExpiration;
+	if (count > 0 && expiration && expiration.getTime() > Date.now()) {
+		line += `${dim(" / earliest expires in ")}${formatResetExpirationDuration(expiration.getTime() - Date.now())}`;
+	}
+	return line;
+}
+
 function removeLeadingWidgetSpacer(tui: unknown, component: unknown): void {
 	const rootChildren = (tui as { children?: unknown[] }).children;
 	if (!Array.isArray(rootChildren)) return;
@@ -648,7 +730,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// ── Codex usage ─────────────────────────────────────────────
-		let chatGPTUsage: { primary: ChatGPTUsageLinePart | null; secondary: ChatGPTUsageLinePart | null } | null = null;
+		let chatGPTUsage: ChatGPTUsage | null = null;
 		try {
 			chatGPTUsage = await fetchChatGPTPlusUsage();
 		} catch {
@@ -670,6 +752,9 @@ export default function (pi: ExtensionAPI) {
 			if (chatGPTUsage) {
 				const chatGPTLine = formatChatGPTUsageLine(chatGPTUsage.primary, chatGPTUsage.secondary, theme);
 				if (chatGPTLine) lines.push(formatLine("Codex Usage", [chatGPTLine], theme));
+
+				const resetLine = formatChatGPTResetLine(chatGPTUsage.resetCredits, theme);
+				if (resetLine) lines.push(formatLine("Codex Reset", [resetLine], theme));
 			}
 
 			// scoped models
