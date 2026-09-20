@@ -58,6 +58,31 @@ const CONTEXT_LIMITER_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(impo
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
+const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
+const ROSE_COLOR_START = "\x1b[38;2;235;188;186m";
+const FOAM_COLOR_START = "\x1b[38;2;156;207;216m";
+const LOVE_COLOR_START = "\x1b[38;2;235;111;146m";
+const FOREGROUND_RESET = "\x1b[39m";
+
+function colorize(colorStart: string, text: string): string {
+	return `${colorStart}${text}${FOREGROUND_RESET}`;
+}
+
+function shellColorize(text: string): string {
+	return colorize(SHELL_COLOR_START, text);
+}
+
+function roseColorize(text: string): string {
+	return colorize(ROSE_COLOR_START, text);
+}
+
+function foamColorize(text: string): string {
+	return colorize(FOAM_COLOR_START, text);
+}
+
+function loveColorize(text: string): string {
+	return colorize(LOVE_COLOR_START, text);
+}
 
 class CompactMarkdown extends Markdown {
 	override render(width: number): string[] {
@@ -100,10 +125,13 @@ function formatUsageStats(
 	return parts.join(" ");
 }
 
+type ToolCallStatus = "running" | "success" | "error" | "unresolved";
+
 function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
+	status?: ToolCallStatus,
 ): string {
 	const shortenPath = (p: string) => {
 		const home = os.homedir();
@@ -113,8 +141,12 @@ function formatToolCall(
 	switch (toolName) {
 		case "bash": {
 			const command = (args.command as string) || "...";
-			const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
-			return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
+			const preview = command.length > 2000 ? `${command.slice(0, 2000)}...` : command;
+			const text = `$ ${preview}`;
+			if (status === "running") return foamColorize(text);
+			if (status === "error") return loveColorize(text);
+			if (status === "unresolved") return themeFg("warning", text);
+			return shellColorize(text);
 		}
 		case "read": {
 			const rawPath = (args.file_path || args.path || "...") as string;
@@ -187,7 +219,7 @@ export interface ContextWarningDiagnostic {
 
 type DisplayItem =
 	| { type: "text"; text: string }
-	| { type: "toolCall"; name: string; args: Record<string, any> }
+	| { type: "toolCall"; id: string; name: string; args: Record<string, any>; status: ToolCallStatus }
 	| { type: "contextWarning"; warning: ContextWarningDiagnostic };
 
 interface SingleResult {
@@ -438,14 +470,31 @@ function truncateParallelOutput(output: string): string {
 	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
 }
 
+function setToolCallStatus(items: DisplayItem[], toolCallId: string, status: ToolCallStatus): void {
+	const item = items.find((candidate): candidate is Extract<DisplayItem, { type: "toolCall" }> =>
+		candidate.type === "toolCall" && candidate.id === toolCallId,
+	);
+	if (item) item.status = status;
+}
+
+function markUnresolvedToolCalls(items: DisplayItem[]): void {
+	for (const item of items) {
+		if (item.type === "toolCall" && item.status === "running") item.status = "unresolved";
+	}
+}
+
 function getDisplayItems(messages: Message[]): DisplayItem[] {
 	const items: DisplayItem[] = [];
 	for (const msg of messages) {
 		if (msg.role === "assistant") {
 			for (const part of msg.content) {
 				if (part.type === "text") items.push({ type: "text", text: part.text });
-				else if (part.type === "toolCall") items.push({ type: "toolCall", name: part.name, args: part.arguments });
+				else if (part.type === "toolCall") {
+					items.push({ type: "toolCall", id: part.id, name: part.name, args: part.arguments, status: "running" });
+				}
 			}
+		} else if (msg.role === "toolResult") {
+			setToolCallStatus(items, msg.toolCallId, msg.isError ? "error" : "success");
 		}
 	}
 	return items;
@@ -480,26 +529,72 @@ export function resultDisplayItems(result: SingleResult): DisplayItem[] {
 	];
 }
 
-function addDisplayItems(
+type DisplayTheme = {
+	fg: (color: any, text: string) => string;
+	inverse: (text: string) => string;
+};
+
+function addSectionHeader(container: Container, title: "Input" | "Tools" | "Output", theme: DisplayTheme): void {
+	container.addChild(new Text(`${roseColorize("")}${theme.inverse(roseColorize(title))}${roseColorize("")}`, 0, 0));
+}
+
+function addToolDisplayItems(container: Container, items: DisplayItem[], theme: DisplayTheme): void {
+	const toolCalls = items.filter((item): item is Extract<DisplayItem, { type: "toolCall" }> => item.type === "toolCall");
+	if (toolCalls.length === 0) {
+		container.addChild(new Text(theme.fg("muted", "(no tools)"), 1, 0));
+		return;
+	}
+	for (const item of toolCalls) {
+		container.addChild(new Text(
+			theme.fg("text", "→") + theme.fg("muted", " ") + formatToolCall(item.name, item.args, theme.fg.bind(theme), item.status),
+			1,
+			0,
+		));
+	}
+}
+
+function isOutputDisplayItem(
+	item: DisplayItem,
+): item is Extract<DisplayItem, { type: "text" | "contextWarning" }> {
+	return item.type === "contextWarning" || (item.type === "text" && item.text.trim().length > 0);
+}
+
+function addOutputDisplayItems(
 	container: Container,
 	items: DisplayItem[],
-	theme: { fg: (color: any, text: string) => string },
+	theme: DisplayTheme,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ): void {
-	for (const item of items) {
-		if (item.type === "toolCall") {
-			container.addChild(new Text(
-				theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-				0,
-				0,
-			));
-		} else if (item.type === "contextWarning") {
+	const outputItems = items.filter(isOutputDisplayItem);
+	if (outputItems.length === 0) {
+		container.addChild(new Text(theme.fg("muted", "(no output)"), 1, 0));
+		return;
+	}
+	for (const item of outputItems) {
+		if (item.type === "contextWarning") {
 			const color = item.warning.threshold >= 90 ? "error" : "warning";
-			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 0, 0));
+			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 1, 0));
 		} else if (item.text.trim()) {
-			container.addChild(new CompactMarkdown(item.text.trim(), 0, 0, mdTheme));
+			container.addChild(new CompactMarkdown(item.text.trim(), 1, 0, mdTheme));
 		}
 	}
+}
+
+function addExpandedResultSections(
+	container: Container,
+	result: SingleResult,
+	theme: DisplayTheme,
+	mdTheme: ReturnType<typeof getMarkdownTheme>,
+): void {
+	const displayItems = resultDisplayItems(result);
+	addSectionHeader(container, "Input", theme);
+	container.addChild(new CompactMarkdown(compactMarkdownForDisplay(result.task), 1, 0, mdTheme));
+	container.addChild(new Spacer(1));
+	addSectionHeader(container, "Tools", theme);
+	addToolDisplayItems(container, displayItems, theme);
+	container.addChild(new Spacer(1));
+	addSectionHeader(container, "Output", theme);
+	addOutputDisplayItems(container, displayItems, theme, mdTheme);
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
@@ -702,6 +797,9 @@ async function runSingleAgent(
 					const msg = event.message as Message;
 					currentResult.messages.push(msg);
 					if (msg.role === "assistant") currentResult.activity.push(...getDisplayItems([msg]));
+					if (msg.role === "toolResult") {
+						setToolCallStatus(currentResult.activity, msg.toolCallId, msg.isError ? "error" : "success");
+					}
 
 					if (msg.role === "assistant") {
 						currentResult.usage.turns++;
@@ -721,8 +819,29 @@ async function runSingleAgent(
 					emitUpdate();
 				}
 
+				if (event.type === "tool_execution_start" && typeof event.toolCallId === "string") {
+					setToolCallStatus(currentResult.activity, event.toolCallId, "running");
+					emitUpdate();
+				}
+
+				if (event.type === "tool_execution_end" && typeof event.toolCallId === "string") {
+					setToolCallStatus(currentResult.activity, event.toolCallId, event.isError ? "error" : "success");
+					emitUpdate();
+				}
+
 				if (event.type === "tool_result_end" && event.message) {
-					currentResult.messages.push(event.message as Message);
+					const message = event.message as Message;
+					if (
+						message.role !== "toolResult" ||
+						!currentResult.messages.some(
+							(existing) => existing.role === "toolResult" && existing.toolCallId === message.toolCallId,
+						)
+					) {
+						currentResult.messages.push(message);
+					}
+					if (message.role === "toolResult") {
+						setToolCallStatus(currentResult.activity, message.toolCallId, message.isError ? "error" : "success");
+					}
 					emitUpdate();
 				}
 			};
@@ -765,12 +884,14 @@ async function runSingleAgent(
 				stopElapsedTimer();
 				if (buffer.trim()) processLine(buffer);
 				if (stderrBuffer) processStderrLine(stderrBuffer);
+				markUnresolvedToolCalls(currentResult.activity);
 				resolve(code ?? 0);
 			});
 
 			proc.on("error", (error) => {
 				stopElapsedTimer();
 				currentResult.stderr += `${error.message}\n`;
+				markUnresolvedToolCalls(currentResult.activity);
 				resolve(1);
 			});
 
@@ -1123,7 +1244,6 @@ export default function (pi: ExtensionAPI) {
 				const isRunning = isRunningResult(r);
 				const isError = isFailedResult(r);
 				const icon = statusIcon(isRunning ? "running" : isError ? "failure" : "success", theme);
-				const displayItems = resultDisplayItems(r);
 
 				if (expanded) {
 					const container = new Container();
@@ -1133,15 +1253,7 @@ export default function (pi: ExtensionAPI) {
 					if (isError && r.errorMessage)
 						container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 					container.addChild(new Spacer(1));
-					container.addChild(new Text(theme.fg("muted", "─── Input ───"), 0, 0));
-					container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
-					container.addChild(new Spacer(1));
-					container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
-					if (displayItems.length === 0) {
-						container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
-					} else {
-						addDisplayItems(container, displayItems, theme, mdTheme);
-					}
+					addExpandedResultSections(container, r, theme, mdTheme);
 					const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 					if (summary) {
 						container.addChild(new Spacer(1));
@@ -1173,7 +1285,6 @@ export default function (pi: ExtensionAPI) {
 							isRunningResult(r) ? "running" : r.exitCode === 0 ? "success" : "failure",
 							theme,
 						);
-						const displayItems = resultDisplayItems(r);
 
 						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
@@ -1183,8 +1294,7 @@ export default function (pi: ExtensionAPI) {
 								0,
 							),
 						);
-						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
-						addDisplayItems(container, displayItems, theme, mdTheme);
+						addExpandedResultSections(container, r, theme, mdTheme);
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 						if (summary) container.addChild(new Text(summary, 0, 0));
@@ -1228,14 +1338,12 @@ export default function (pi: ExtensionAPI) {
 							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
 							theme,
 						);
-						const displayItems = resultDisplayItems(r);
 
 						if (index > 0) container.addChild(new Spacer(1));
 						container.addChild(
 							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
 						);
-						container.addChild(new CompactMarkdown(compactMarkdownForDisplay(r.task), 0, 0, mdTheme));
-						addDisplayItems(container, displayItems, theme, mdTheme);
+						addExpandedResultSections(container, r, theme, mdTheme);
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 						if (summary) container.addChild(new Text(summary, 0, 0));
