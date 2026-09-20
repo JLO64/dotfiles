@@ -59,7 +59,6 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const PER_TASK_OUTPUT_CAP = 50 * 1024;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
-const ROSE_COLOR_START = "\x1b[38;2;235;188;186m";
 const FOAM_COLOR_START = "\x1b[38;2;156;207;216m";
 const LOVE_COLOR_START = "\x1b[38;2;235;111;146m";
 const FOREGROUND_RESET = "\x1b[39m";
@@ -70,10 +69,6 @@ function colorize(colorStart: string, text: string): string {
 
 function shellColorize(text: string): string {
 	return colorize(SHELL_COLOR_START, text);
-}
-
-function roseColorize(text: string): string {
-	return colorize(ROSE_COLOR_START, text);
 }
 
 function foamColorize(text: string): string {
@@ -142,11 +137,10 @@ function formatToolCall(
 		case "bash": {
 			const command = (args.command as string) || "...";
 			const preview = command.length > 2000 ? `${command.slice(0, 2000)}...` : command;
-			const text = `$ ${preview}`;
-			if (status === "running") return foamColorize(text);
-			if (status === "error") return loveColorize(text);
-			if (status === "unresolved") return themeFg("warning", text);
-			return shellColorize(text);
+			if (status === "running") return themeFg("text", "bash ") + foamColorize(preview);
+			if (status === "error") return themeFg("text", "bash ") + loveColorize(preview);
+			if (status === "unresolved") return themeFg("text", "bash ") + themeFg("warning", preview);
+			return themeFg("text", "bash ") + shellColorize(preview);
 		}
 		case "read": {
 			const rawPath = (args.file_path || args.path || "...") as string;
@@ -159,43 +153,43 @@ function formatToolCall(
 				const endLine = limit !== undefined ? startLine + limit - 1 : "";
 				text += themeFg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
-			return themeFg("muted", "read ") + text;
+			return themeFg("text", "read ") + text;
 		}
 		case "write": {
 			const rawPath = (args.file_path || args.path || "...") as string;
 			const filePath = shortenPath(rawPath);
 			const content = (args.content || "") as string;
 			const lines = content.split("\n").length;
-			let text = themeFg("muted", "write ") + themeFg("accent", filePath);
-			if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
+			let text = themeFg("text", "write ") + themeFg("accent", filePath);
+			if (lines > 1) text += themeFg("accent", ` (${lines} lines)`);
 			return text;
 		}
 		case "edit": {
 			const rawPath = (args.file_path || args.path || "...") as string;
-			return themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath));
+			return themeFg("text", "edit ") + themeFg("accent", shortenPath(rawPath));
 		}
 		case "ls": {
 			const rawPath = (args.path || ".") as string;
-			return themeFg("muted", "ls ") + themeFg("accent", shortenPath(rawPath));
+			return themeFg("text", "ls ") + themeFg("accent", shortenPath(rawPath));
 		}
 		case "find": {
 			const pattern = (args.pattern || "*") as string;
 			const rawPath = (args.path || ".") as string;
-			return themeFg("muted", "find ") + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`);
+			return themeFg("text", "find ") + themeFg("accent", pattern) + themeFg("accent", ` in ${shortenPath(rawPath)}`);
 		}
 		case "grep": {
 			const pattern = (args.pattern || "") as string;
 			const rawPath = (args.path || ".") as string;
 			return (
-				themeFg("muted", "grep ") +
+				themeFg("text", "grep ") +
 				themeFg("accent", `/${pattern}/`) +
-				themeFg("dim", ` in ${shortenPath(rawPath)}`)
+				themeFg("accent", ` in ${shortenPath(rawPath)}`)
 			);
 		}
 		default: {
 			const argsStr = JSON.stringify(args);
 			const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
-			return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
+			return themeFg("text", toolName) + themeFg("accent", ` ${preview}`);
 		}
 	}
 }
@@ -531,52 +525,48 @@ export function resultDisplayItems(result: SingleResult): DisplayItem[] {
 
 type DisplayTheme = {
 	fg: (color: any, text: string) => string;
+	bold: (text: string) => string;
 	inverse: (text: string) => string;
 };
 
 function addSectionHeader(container: Container, title: "Input" | "Tools" | "Output", theme: DisplayTheme): void {
-	container.addChild(new Text(`${roseColorize("")}${theme.inverse(roseColorize(title))}${roseColorize("")}`, 0, 0));
+	container.addChild(new Text(theme.fg("text", `${theme.inverse(theme.bold(title))}`), 0, 0));
 }
 
 function addToolDisplayItems(container: Container, items: DisplayItem[], theme: DisplayTheme): void {
-	const toolCalls = items.filter((item): item is Extract<DisplayItem, { type: "toolCall" }> => item.type === "toolCall");
-	if (toolCalls.length === 0) {
+	const toolItems = items.filter(
+		(item): item is Extract<DisplayItem, { type: "toolCall" | "contextWarning" }> =>
+			item.type === "toolCall" || item.type === "contextWarning",
+	);
+	if (toolItems.length === 0) {
 		container.addChild(new Text(theme.fg("muted", "(no tools)"), 1, 0));
 		return;
 	}
-	for (const item of toolCalls) {
-		container.addChild(new Text(
-			theme.fg("text", "→") + theme.fg("muted", " ") + formatToolCall(item.name, item.args, theme.fg.bind(theme), item.status),
-			1,
-			0,
-		));
+	for (const item of toolItems) {
+		if (item.type === "contextWarning") {
+			const color = item.warning.threshold >= 90 ? "error" : "warning";
+			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 1, 0));
+		} else {
+			container.addChild(new Text(
+				theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme), item.status),
+				1,
+				0,
+			));
+		}
 	}
 }
 
-function isOutputDisplayItem(
-	item: DisplayItem,
-): item is Extract<DisplayItem, { type: "text" | "contextWarning" }> {
-	return item.type === "contextWarning" || (item.type === "text" && item.text.trim().length > 0);
+function isOutputDisplayItem(item: DisplayItem): item is Extract<DisplayItem, { type: "text" }> {
+	return item.type === "text" && item.text.trim().length > 0;
 }
 
 function addOutputDisplayItems(
 	container: Container,
 	items: DisplayItem[],
-	theme: DisplayTheme,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
 ): void {
-	const outputItems = items.filter(isOutputDisplayItem);
-	if (outputItems.length === 0) {
-		container.addChild(new Text(theme.fg("muted", "(no output)"), 1, 0));
-		return;
-	}
-	for (const item of outputItems) {
-		if (item.type === "contextWarning") {
-			const color = item.warning.threshold >= 90 ? "error" : "warning";
-			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 1, 0));
-		} else if (item.text.trim()) {
-			container.addChild(new CompactMarkdown(item.text.trim(), 1, 0, mdTheme));
-		}
+	for (const item of items.filter(isOutputDisplayItem)) {
+		container.addChild(new CompactMarkdown(item.text.trim(), 1, 0, mdTheme));
 	}
 }
 
@@ -592,9 +582,11 @@ function addExpandedResultSections(
 	container.addChild(new Spacer(1));
 	addSectionHeader(container, "Tools", theme);
 	addToolDisplayItems(container, displayItems, theme);
-	container.addChild(new Spacer(1));
-	addSectionHeader(container, "Output", theme);
-	addOutputDisplayItems(container, displayItems, theme, mdTheme);
+	if (displayItems.some(isOutputDisplayItem)) {
+		container.addChild(new Spacer(1));
+		addSectionHeader(container, "Output", theme);
+		addOutputDisplayItems(container, displayItems, mdTheme);
+	}
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
