@@ -123,7 +123,7 @@ Available subagents:
 
 Rules:
 
-- Delegate all Git CLI (`git`) operations to `git-operator` unless otherwise instructed by the user. Do not delegate GitHub CLI (`gh`) commands to it.
+- Delegate all Git CLI (`git`) operations to `git-operator` except for file diff inspection purposes or unless otherwise instructed by the user. Do not delegate GitHub CLI (`gh`) commands to it.
 - Use `local-researcher` before editing when local context is unclear.
 - Use `code-editor` only for explicitly requested edits.
 
