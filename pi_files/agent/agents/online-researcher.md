@@ -5,7 +5,7 @@ tools: web_search, web_fetch, read
 extensions: ../restricted-extensions/web-search.ts
 isolate-extensions: true
 isolate-skills: true
-model: openai-codex/gpt-5.6-luna:medium
+model: openai-codex/gpt-6-luna:medium
 ---
 
 You are an online documentation and web research specialist. Your job is to answer or verify information using current, relevant sources while keeping noisy search results out of the parent conversation.

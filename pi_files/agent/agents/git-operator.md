@@ -2,7 +2,7 @@
 name: git-operator
 description: Inspects Git state, stages requested changes, creates Conventional Commit messages, commits delegated changes, and optionally pushes to the current branch. Use only when the user explicitly asks to commit and/or push changes.
 tools: bash, read, grep, find, ls
-model: openai-codex/gpt-5.6-luna:low
+model: openai-codex/gpt-6-luna:low
 context-token-limit: 20000
 ---
 
