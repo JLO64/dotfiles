@@ -4,12 +4,11 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.6-luna",
   "enabledModels": [
-    "openai-codex/gpt-5.6-luna",
-    "openai-codex/gpt-5.6-terra",
-    "lm-studio/google/gemma-4-26b-a4b-qat"
+    "openai-codex/gpt-6-luna",
+    "openai-codex/gpt-6-sol"
   ],
   "packages": [],
-  "defaultThinkingLevel": "medium",
+  "defaultThinkingLevel": "high",
   "theme": "rose-pine-moon",
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
