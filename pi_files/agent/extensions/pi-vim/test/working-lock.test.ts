@@ -177,7 +177,7 @@ describe("streaming frame rendering", () => {
     expect(stripAnsi(rendered[2]!)).toMatch(/^╰.* STREAMING ─╯$/);
   });
 
-  test("uses fixed #f3baf0 for every textbox element in every frame", () => {
+  test("uses fixed #ebbcba for every textbox element in every frame", () => {
     const editor = makeEditor();
     let now = 0;
     editor.setNowFn(() => now);
@@ -189,8 +189,8 @@ describe("streaming frame rendering", () => {
       const frameColors = rendered.flatMap((row) =>
         [...row.matchAll(/\x1b\[38;2;\d+;\d+;\d+m/g)].map((match) => match[0]),
       );
-      expect(new Set(frameColors)).toEqual(new Set(["\x1b[38;2;243;186;240m"]));
-      expect(getStreamingRgb(rendered[0]!)).toEqual([243, 186, 240]);
+      expect(new Set(frameColors)).toEqual(new Set(["\x1b[38;2;235;188;186m"]));
+      expect(getStreamingRgb(rendered[0]!)).toEqual([235, 188, 186]);
     }
   });
 
