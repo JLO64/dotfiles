@@ -52,7 +52,10 @@ export function withCollapsedResult<TParams extends TSchema, TDetails, TState>(
 	return {
 		...tool,
 		renderCall(args, theme, context) {
-			const component = tool.renderCall?.(args, theme, context) ?? new Container();
+			const callArgs = tool.name === "write" && !context.expanded
+				? { ...args, content: "" }
+				: args;
+			const component = tool.renderCall?.(callArgs, theme, context) ?? new Container();
 			if (tool.name === "edit" && !context.expanded) collapseEditCallPreview(component);
 			return component;
 		},
