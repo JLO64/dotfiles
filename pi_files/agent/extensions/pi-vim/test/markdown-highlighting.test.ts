@@ -43,6 +43,34 @@ describe("Markdown input highlighting", () => {
     expect(rendered).toContain("\x1b[31m`\x1b[39m");
   });
 
+  test("keeps Flash labels ANSI-safe inside spellchecked words", () => {
+    const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+    const spellcheck = new SpellcheckService("/unused");
+    (spellcheck as any).spans = [{ line: 0, start: 0, end: 4, word: "typo" }];
+    const editor = new ModalEditor(
+      tui as any,
+      { borderColor: (text: string) => text, selectList: {} } as any,
+      { matches: () => false } as any,
+      null,
+      null,
+      null,
+      undefined,
+      undefined,
+      undefined,
+      spellcheck,
+    );
+    editor.setText("typo");
+    editor.handleInput("\x1b");
+    editor.handleInput("s");
+    editor.handleInput("y");
+
+    const rendered = editor.render(80).join("\n");
+    const visible = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+    expect(visible).toContain("tapo");
+    expect(visible).not.toContain("39;24m");
+    expect(rendered).toContain("\x1b[43m");
+  });
+
   test("composes spell underlines with Markdown styling", () => {
     const tui = { terminal: { rows: 40 }, requestRender: () => {} };
     const appTheme = {

@@ -3369,7 +3369,7 @@ export class ModalEditor extends CustomEditor {
       const split = this.splitRenderedContentAtVisibleColumn(content, visibleCol);
       if (!split) continue;
 
-      const label = `${LABEL_FG}${LABEL_BG}${match.label}${RESET}`;
+      const label = `${RESET}${LABEL_FG}${LABEL_BG}${match.label}${RESET}${split.restore}`;
       const newContent = split.before + label + split.after;
       const newWidth = visibleWidth(content) - split.atWidth + visibleWidth(match.label);
       const newPadding = Math.max(0, contentWidth - newWidth);
@@ -3456,13 +3456,19 @@ export class ModalEditor extends CustomEditor {
   private splitRenderedContentAtVisibleColumn(
     content: string,
     targetCol: number,
-  ): { before: string; at: string; after: string; atWidth: number } | null {
+  ): { before: string; at: string; after: string; atWidth: number; restore: string } | null {
     let col = 0;
     let i = 0;
+    const sgrHistory: string[] = [];
+    const trackSgr = (sequence: string) => {
+      if (/^\x1b\[[\d;]*m$/.test(sequence)) sgrHistory.push(sequence);
+    };
     while (i < content.length && col < targetCol) {
       if (content[i] === "\x1b") {
         const end = this.findAnsiSequenceEnd(content, i);
         if (end === null) break;
+        const sequence = content.slice(i, end);
+        trackSgr(sequence);
         i = end;
         continue;
       }
@@ -3476,19 +3482,30 @@ export class ModalEditor extends CustomEditor {
       i += seg.length;
     }
 
+    // Keep zero-width ANSI controls at the insertion boundary with the prefix,
+    // and remember SGR state so the label's reset doesn't erase text styling.
+    while (i < content.length && content[i] === "\x1b") {
+      const end = this.findAnsiSequenceEnd(content, i);
+      if (end === null) break;
+      const sequence = content.slice(i, end);
+      trackSgr(sequence);
+      i = end;
+    }
+
     if (i >= content.length) {
-      return { before: content, at: "", after: "", atWidth: 0 };
+      return { before: content, at: "", after: "", atWidth: 0, restore: sgrHistory.join("") };
     }
 
     const graphemes = getLineGraphemes(content.slice(i));
     const g = graphemes[0];
-    if (!g) return { before: content, at: "", after: "", atWidth: 0 };
+    if (!g) return { before: content, at: "", after: "", atWidth: 0, restore: sgrHistory.join("") };
     const seg = content.slice(i, i + g.end);
     return {
       before: content.slice(0, i),
       at: seg,
       after: content.slice(i + seg.length),
       atWidth: visibleWidth(seg),
+      restore: sgrHistory.join(""),
     };
   }
 
