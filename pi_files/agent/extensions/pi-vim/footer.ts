@@ -608,7 +608,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 						(isCompact ? "" : theme.fg("dim", " at ")) +
 						timePart;
 
-					if (visibleWidth(line) >= 115) {
+					if (visibleWidth(line) >= 120) {
 						modelPart = borderColorize(" ") + borderColorize(shortenModelName(
 							ctx.model?.provider,
 							ctx.model?.id || "no-model",
