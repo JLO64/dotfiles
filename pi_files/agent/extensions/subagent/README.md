@@ -2,6 +2,18 @@
 
 The subagent extension launches each agent in a separate pi process. Agent profiles can control which tools, extensions, and skills that child process receives. This keeps specialized resources out of unrelated agent contexts; it is not a filesystem security boundary.
 
+## Persistent private sessions and Continue
+
+Every subagent invocation creates a persistent session in `~/.pi/agent/subagent-sessions/sessions/`, outside Pi's normal project session directories and default `/resume` listings. The tool returns a random opaque **Session handle** in progress and final text (each chain step and parallel task has its own handle). Handles and session files are private to the current OS user. If the parent agent is interrupted before it returns a tool result, recover the handle from `owner.json` filenames in that directory; the handle is the UUID-named parent directory.
+
+Continue an existing subagent with the same session handle and a new prompt:
+
+```json
+{"continueHandle":"<session handle>","task":"Continue the investigation and report the remaining issue."}
+```
+
+Continue reuses the original working directory, agent profile, and context-token limit. A missing or changed profile is rejected rather than silently switching identity. Session histories are not replayed as new prompts, so previous tool calls are not automatically rerun. If a process is interrupted during a tool operation, inspect the persisted conversation and workspace before continuing because the operation's completion may be uncertain. All runs, including initial single/parallel/chain runs, and Continue requests are serialized with a private per-session lock. Sessions found active after an interrupted parent are marked uncertain, and the next prompt receives an explicit warning to inspect effects before proceeding. Before Continue, the extension scans the persisted session transcript for tool calls without results; if any are found (or the transcript cannot be read), it refuses to prompt rather than attempting an unsafe replay or synthesizing a result. This does not repair the transcript: inspect its tool effects manually before deciding how to proceed.
+
 ## Agent profile fields
 
 Public agent profiles are Markdown files under `~/.pi/agent/agents/` or a project's `.pi/agents/` directory. Restricted agent profiles use the parallel `restricted-agents/` directory described below.

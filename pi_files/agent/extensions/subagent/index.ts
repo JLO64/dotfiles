@@ -31,6 +31,7 @@ import {
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, resolveRestrictedAgent } from "./agents.ts";
+import { createPrivateSession, getPrivateSession, getPrivateSessionState, privateSessionDir, setPrivateSessionState, withPrivateSessionLock } from "./session-store.ts";
 import { buildAgentResourceArgs } from "./resource-config.ts";
 import { resolveAgentModel } from "./model-config.ts";
 import {
@@ -234,6 +235,7 @@ interface SingleResult {
 	contextTokenLimit: number;
 	contextWarnings: ContextWarningDiagnostic[];
 	activity: DisplayItem[];
+	sessionHandle?: string;
 }
 
 interface SubagentDetails {
@@ -254,6 +256,32 @@ function getFinalOutput(messages: Message[]): string {
 		}
 	}
 	return "";
+}
+
+async function findDanglingPersistedToolCalls(handle: string): Promise<string[] | undefined> {
+	try {
+		const files = (await fs.promises.readdir(privateSessionDir(handle))).filter((name) => name.endsWith(`_${handle}.jsonl`));
+		if (files.length !== 1) return undefined;
+		const transcript = path.join(privateSessionDir(handle), files[0]);
+		const lines = (await fs.promises.readFile(transcript, "utf8")).split("\n");
+		const outstanding = new Map<string, string>();
+		for (const line of lines) {
+			if (!line.trim()) continue;
+			let entry: any;
+			try { entry = JSON.parse(line); } catch { continue; }
+			const message = entry?.type === "message" ? entry.message : undefined;
+			if (message?.role === "assistant" && Array.isArray(message.content)) {
+				for (const part of message.content) if (part?.type === "toolCall" && typeof part.id === "string") {
+					outstanding.set(part.id, typeof part.name === "string" ? part.name : "unknown tool");
+				}
+			} else if (message?.role === "toolResult" && typeof message.toolCallId === "string") {
+				outstanding.delete(message.toolCallId);
+			}
+		}
+		return [...outstanding].map(([id, name]) => `${name} (${id})`);
+	} catch {
+		return undefined;
+	}
 }
 
 function isRunningResult(result: SingleResult): boolean {
@@ -671,6 +699,8 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	privateSession?: Awaited<ReturnType<typeof createPrivateSession>>,
+	agentScope: AgentScope = "user",
 ): Promise<SingleResult> {
 	if (!agent) {
 		return {
@@ -704,7 +734,15 @@ async function runSingleAgent(
 	}
 
 	const model = resolveAgentModel(agent.name, agent.model);
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	const session = privateSession ?? await createPrivateSession({
+		agent: agent.name,
+		agentSource: agent.source,
+		agentFilePath: agent.filePath,
+		cwd: cwd ?? defaultCwd,
+		agentScope,
+		contextTokenLimit,
+	});
+	const args: string[] = ["--mode", "rpc", "--session-dir", privateSessionDir(session.handle), "--session-id", session.handle];
 	if (model) args.push("--model", model);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
@@ -726,12 +764,13 @@ async function runSingleAgent(
 		contextTokenLimit,
 		contextWarnings: [],
 		activity: [],
+		sessionHandle: session.handle,
 	};
 
 	const emitUpdate = () => {
 		if (onUpdate) {
 			onUpdate({
-				content: [{ type: "text", text: getFinalOutput(currentResult.messages) || "(running...)" }],
+				content: [{ type: "text", text: `${getFinalOutput(currentResult.messages) || "(running...)"}\nSession handle: ${currentResult.sessionHandle}` }],
 				details: makeDetails([currentResult]),
 			});
 		}
@@ -755,17 +794,17 @@ async function runSingleAgent(
 			args.push("--append-system-prompt", tmpPromptPath);
 		}
 
-		args.push(task);
 		let wasAborted = false;
 
 		const gitBranch = captureGitBranch(childCwd);
 		const startedAt = Date.now();
+		await setPrivateSessionState(session.handle, "active");
 		const exitCode = await new Promise<number>((resolve) => {
 			const invocation = getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: childCwd,
 				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
+				stdio: ["pipe", "pipe", "pipe"],
 				env: { ...process.env, PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: String(contextTokenLimit) },
 			});
 			let buffer = "";
@@ -776,6 +815,22 @@ async function runSingleAgent(
 				elapsedTimer = undefined;
 			};
 
+			let abortTimer: ReturnType<typeof setTimeout> | undefined;
+			let stateRequestId: string | undefined;
+			let agentStarted = false;
+			const sendAbort = () => {
+				if (wasAborted) return;
+				wasAborted = true;
+				try { proc.stdin.write('{"type":"abort"}\n'); } catch { /* process may have exited */ }
+				abortTimer = setTimeout(() => {
+					if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGTERM");
+					setTimeout(() => {
+						if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+					}, 5000);
+				}, 5000);
+			};
+			const requestAbort = () => sendAbort();
+			const promptId = `subagent_${randomUUID()}`;
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
 				let event: any;
@@ -783,6 +838,26 @@ async function runSingleAgent(
 					event = JSON.parse(line);
 				} catch {
 					return;
+				}
+				if (event.type === "response" && event.id === promptId && event.command === "prompt") {
+					if (!event.success) {
+						currentResult.stderr += `Prompt rejected: ${event.error || "unknown RPC error"}\n`;
+						proc.kill("SIGTERM");
+						return;
+					}
+					// A successful prompt can be handled by an extension command or input hook
+					// without starting an agent run or emitting agent_settled. Query state only
+					// after success; a normal run emits agent_start before this response is read.
+					stateRequestId = `subagent_state_${randomUUID()}`;
+					proc.stdin.write(`${JSON.stringify({ type: "get_state", id: stateRequestId })}\n`);
+				}
+				if (event.type === "response" && event.id === stateRequestId && event.command === "get_state") {
+					if (event.success && !agentStarted && event.data?.isStreaming === false) proc.stdin.end();
+					stateRequestId = undefined;
+				}
+				if (event.type === "agent_start") agentStarted = true;
+				if (event.type === "agent_settled") {
+					proc.stdin.end();
 				}
 
 				if (event.type === "message_end" && event.message) {
@@ -874,34 +949,31 @@ async function runSingleAgent(
 
 			proc.on("close", (code) => {
 				stopElapsedTimer();
+				if (abortTimer) clearTimeout(abortTimer);
 				if (buffer.trim()) processLine(buffer);
 				if (stderrBuffer) processStderrLine(stderrBuffer);
 				markUnresolvedToolCalls(currentResult.activity);
-				resolve(code ?? 0);
+				if (code === null) currentResult.stderr += `Subagent process exited from signal ${proc.signalCode ?? "unknown"}.\n`;
+				resolve(code ?? 1);
 			});
 
 			proc.on("error", (error) => {
 				stopElapsedTimer();
+				if (abortTimer) clearTimeout(abortTimer);
 				currentResult.stderr += `${error.message}\n`;
 				markUnresolvedToolCalls(currentResult.activity);
 				resolve(1);
 			});
 
+			proc.stdin.write(`${JSON.stringify({ type: "prompt", id: promptId, message: task })}\n`);
 			if (signal) {
-				const killProc = () => {
-					wasAborted = true;
-					stopElapsedTimer();
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
-				};
-				if (signal.aborted) killProc();
-				else signal.addEventListener("abort", killProc, { once: true });
+				if (signal.aborted) requestAbort();
+				else signal.addEventListener("abort", requestAbort, { once: true });
 			}
 		});
 
 		currentResult.exitCode = exitCode;
+		await setPrivateSessionState(session.handle, wasAborted || exitCode !== 0 ? "uncertain" : "ready");
 		currentResult.durationMs = Date.now() - startedAt;
 		currentResult.gitBranch = await gitBranch;
 		if (wasAborted) {
@@ -923,6 +995,34 @@ async function runSingleAgent(
 				/* ignore */
 			}
 	}
+}
+
+async function runLockedAgent(
+	defaultCwd: string,
+	agent: AgentConfig | undefined,
+	agentName: string,
+	task: string,
+	cwd: string | undefined,
+	step: number | undefined,
+	contextTokenLimit: number,
+	signal: AbortSignal | undefined,
+	onUpdate: OnUpdateCallback | undefined,
+	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	agentScope: AgentScope,
+): Promise<SingleResult> {
+	if (!agent) return runSingleAgent(defaultCwd, agent, agentName, task, cwd, step, contextTokenLimit, signal, onUpdate, makeDetails, undefined, agentScope);
+	const session = await createPrivateSession({
+		agent: agent.name,
+		agentSource: agent.source,
+		agentFilePath: agent.filePath,
+		cwd: cwd ?? defaultCwd,
+		agentScope,
+		contextTokenLimit,
+	});
+	return withPrivateSessionLock(session.handle, () => runSingleAgent(
+		defaultCwd, agent, agentName, task, cwd, step, contextTokenLimit, signal, onUpdate,
+		makeDetails, session, agentScope,
+	));
 }
 
 const ContextTokenLimit = Type.Optional(Type.Integer({
@@ -955,6 +1055,7 @@ const SubagentParams = Type.Object({
 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
+	continueHandle: Type.Optional(Type.String({ description: "Opaque handle returned by a previous subagent call" })),
 	agentScope: Type.Optional(AgentScopeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 	contextTokenLimit: ContextTokenLimit,
@@ -966,7 +1067,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder), continue (continueHandle + task).",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
 		].join(" "),
@@ -979,10 +1080,11 @@ export default function (pi: ExtensionAPI) {
 			const resolveAgent = (name: string) =>
 				agents.find((agent) => agent.name === name) ?? resolveRestrictedAgent(ctx.cwd, agentScope, name);
 
+			const hasContinue = Boolean(params.continueHandle && params.task);
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasContinue);
 
 			const makeDetails =
 				(mode: "single" | "parallel" | "chain") =>
@@ -993,6 +1095,51 @@ export default function (pi: ExtensionAPI) {
 					results,
 					totalTasks: mode === "chain" ? params.chain?.length : mode === "parallel" ? params.tasks?.length : undefined,
 				});
+
+			if (hasContinue && params.continueHandle && params.task) {
+				const continuationPrompt = params.task;
+				const saved = await getPrivateSession(params.continueHandle);
+				const errorResult = (message: string) => ({
+					content: [{ type: "text" as const, text: `${message}\nSession handle: ${params.continueHandle}` }],
+					details: makeDetails("single")([]),
+					isError: true,
+				});
+				if (!saved) return errorResult("Unknown or invalid private subagent session handle.");
+				const sessionDiscovery = discoverAgents(saved.cwd, saved.agentScope);
+				const sessionAgent = sessionDiscovery.agents.find((candidate) => candidate.name === saved.agent) ??
+					resolveRestrictedAgent(saved.cwd, saved.agentScope, saved.agent);
+				if (!sessionAgent || sessionAgent.source !== saved.agentSource || sessionAgent.filePath !== saved.agentFilePath) {
+					return errorResult("The subagent profile for this session is no longer available or has changed.");
+				}
+				const result = await withPrivateSessionLock(saved.handle, async () => {
+					const danglingCalls = await findDanglingPersistedToolCalls(saved.handle);
+					if (!danglingCalls || danglingCalls.length > 0) {
+						return {
+							agent: saved.agent, agentSource: saved.agentSource, task: continuationPrompt, exitCode: 1,
+							messages: [], stderr: !danglingCalls
+								? "Cannot verify persisted tool-call completion because the session transcript could not be read. Inspect the session and workspace before continuing."
+								: `Cannot continue automatically: persisted tool call(s) have no result: ${danglingCalls.join(", ")}. Inspect the session and workspace; no tool was replayed.`,
+							usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+							contextTokenLimit: saved.contextTokenLimit, contextWarnings: [], activity: [], sessionHandle: saved.handle,
+						};
+					}
+					const priorState = await getPrivateSessionState(saved.handle);
+					const continueTask = priorState === "ready"
+						? continuationPrompt
+						: `WARNING: The preceding operation may have been interrupted or left tool execution incomplete. Review the persisted conversation and inspect the workspace for uncertain effects; do not assume prior tools completed or replay them automatically.\n\nContinuation request:\n${continuationPrompt}`;
+					return runSingleAgent(
+						saved.cwd, sessionAgent, saved.agent, continueTask, saved.cwd, undefined,
+						saved.contextTokenLimit, signal, onUpdate, makeDetails("single"), saved, saved.agentScope,
+					);
+				});
+				const failed = isFailedResult(result);
+				const output = getResultOutput(result);
+				return {
+					content: [{ type: "text", text: `${output}\n\nSession handle: ${saved.handle}` }],
+					details: makeDetails("single")([result]),
+					...(failed ? { isError: true } : {}),
+				};
+			}
 
 			if (modeCount !== 1) {
 				const available = agents.map((a) => a.name).join(", ") || "none";
@@ -1031,7 +1178,7 @@ export default function (pi: ExtensionAPI) {
 						: undefined;
 
 					const agent = resolveAgent(step.agent);
-					const result = await runSingleAgent(
+					const result = await runLockedAgent(
 						ctx.cwd,
 						agent,
 						step.agent,
@@ -1042,6 +1189,7 @@ export default function (pi: ExtensionAPI) {
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
+						agentScope,
 					);
 					results.push(result);
 
@@ -1051,7 +1199,7 @@ export default function (pi: ExtensionAPI) {
 						const reportNote = await failureReportNote(result, errorMsg);
 						return {
 							content: [
-								{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}\n\n${reportNote}` },
+								{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}\n\nSession handle: ${result.sessionHandle}\n${reportNote}` },
 							],
 							details: makeDetails("chain")(results),
 							isError: true,
@@ -1060,7 +1208,7 @@ export default function (pi: ExtensionAPI) {
 					previousOutput = getFinalOutput(result.messages);
 				}
 				return {
-					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
+					content: [{ type: "text", text: `${getFinalOutput(results[results.length - 1].messages) || "(no output)"}\n\nSession handles (one per chain step): ${results.map((result) => result.sessionHandle).join(", ")}` }],
 					details: makeDetails("chain")(results),
 				};
 			}
@@ -1106,7 +1254,7 @@ export default function (pi: ExtensionAPI) {
 						const done = allResults.filter((r) => r.exitCode !== -1).length;
 						onUpdate({
 							content: [
-								{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` },
+								{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running.\nSession handles: ${allResults.map((result) => result.sessionHandle).filter(Boolean).join(", ") || "pending"}` },
 							],
 							details: makeDetails("parallel")([...allResults]),
 						});
@@ -1115,7 +1263,7 @@ export default function (pi: ExtensionAPI) {
 
 				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
 					const agent = taskAgents[index];
-					const result = await runSingleAgent(
+					const result = await runLockedAgent(
 						ctx.cwd,
 						agent,
 						t.agent,
@@ -1132,6 +1280,7 @@ export default function (pi: ExtensionAPI) {
 							}
 						},
 						makeDetails("parallel"),
+						agentScope,
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -1147,7 +1296,7 @@ export default function (pi: ExtensionAPI) {
 							? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
 							: "completed";
 						const reportNote = failed ? `\n\n${await failureReportNote(r, getResultOutput(r))}` : "";
-						return `### [${r.agent}] ${status}\n\n${output}${reportNote}`;
+						return `### [${r.agent}] ${status}\n\n${output}\n\nSession handle: ${r.sessionHandle}${reportNote}`;
 					}),
 				);
 				return {
@@ -1163,7 +1312,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (params.agent && params.task) {
 				const agent = resolveAgent(params.agent);
-				const result = await runSingleAgent(
+				const result = await runLockedAgent(
 					ctx.cwd,
 					agent,
 					params.agent,
@@ -1174,19 +1323,20 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					onUpdate,
 					makeDetails("single"),
+					agentScope,
 				);
 				const isError = isFailedResult(result);
 				if (isError) {
 					const errorMsg = getResultOutput(result);
 					const reportNote = await failureReportNote(result, errorMsg);
 					return {
-						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}\n\n${reportNote}` }],
+						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}\n\nSession handle: ${result.sessionHandle}\n${reportNote}` }],
 						details: makeDetails("single")([result]),
 						isError: true,
 					};
 				}
 				return {
-					content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
+					content: [{ type: "text", text: `${getFinalOutput(result.messages) || "(no output)"}\n\nSession handle: ${result.sessionHandle}` }],
 					details: makeDetails("single")([result]),
 				};
 			}
