@@ -62,6 +62,12 @@ Do not set a subagent invocation's `contextTokenLimit` argument unless the user 
 
 Do not delegate the creation or editing of project plans or internal documentation Markdown files; handle those changes directly as the main agent.
 
+### Continuing subagents
+
+Keep the session handle returned by a subagent call, including when it is stopped or fails. To prompt that same subagent again, call `subagent` with `continueHandle` set to its handle and `task` set to a new instruction. This works after completion as well as after an interrupted run; do not start a fresh agent when the user asks to resume a specific one.
+
+Continuation restores the saved conversation, not the exact point of an interrupted tool call. Ask the subagent to check what it completed and inspect uncertain effects before proceeding; never assume a stopped tool did nothing or automatically replay it. If the extension refuses continuation because a tool result is missing or the transcript cannot be verified, report that limitation rather than silently starting a new session.
+
 ### Task Decomposition
 
 Give each call one coherent, independently verifiable outcome. Split substantial work with distinct acceptance criteria, independent validation, unrelated failure modes, or heavy context. Keep tightly coupled or atomic work together, and avoid excessive fragmentation.
