@@ -1365,8 +1365,18 @@ export default function (pi: ExtensionAPI) {
 					0,
 				);
 			}
+			let label = args.agent || "...";
+			if (args.continueHandle) {
+				try {
+					const ownerPath = path.join(privateSessionDir(args.continueHandle), "owner.json");
+					const owner = JSON.parse(fs.readFileSync(ownerPath, "utf8"));
+					label = `${typeof owner.agent === "string" ? owner.agent : "..."}(resumed)`;
+				} catch {
+					label = "...(resumed)";
+				}
+			}
 			return new Text(
-				theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", args.agent || "..."),
+				theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", label),
 				0,
 				0,
 			);
