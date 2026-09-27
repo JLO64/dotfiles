@@ -508,7 +508,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 					const borderColorize = state.borderColorize;
 
 					// Model name
-					const modelPart = borderColorize(" ") + borderColorize(modelName);
+					let modelPart = borderColorize(" ") + borderColorize(modelName);
 
 					// Stats in parentheses: (4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
@@ -539,7 +539,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 										: `${usedPercent}%`;
 							costStr = resetAt === null
 								? percentStr
-								: `${percentStr}${theme.fg("dim", " reset in ")}${formatResetDuration(resetAt)}`;
+								: `${percentStr}${theme.fg("dim", " in ")}${formatResetDuration(resetAt)}`;
 						}
 					} else if (streamingState.isStreaming && streamingCost > 0) {
 						const baseCost = totalCost > 0 ? totalCost : 0;
@@ -557,11 +557,11 @@ export default function registerFooter(pi: ExtensionAPI) {
 							? "Off"
 							: thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1);
 
-					const statsParts = [thinkingLabel, contextStr, costStr].filter((part, i) => {
+					let statsParts = [thinkingLabel, contextStr, costStr].filter((part, i) => {
 						if (ctx.model?.provider === "lm-studio" && i === 2) return false;
 						return !!part;
 					});
-					const stats =
+					let stats =
 						statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
 
 					// Hostname (short, like `hostname -s`)
@@ -577,7 +577,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 					if (/macbook/i.test(hostname)) hostname = "MBP";
 
 					// Directory
-					const dirPart =
+					let dirPart =
 						borderColorize(" ") +
 						borderColorize(displayCwd) +
 						`(${hostname})`;
@@ -599,7 +599,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 						? ""
 						: borderColorize("󰥔 ") + borderColorize(timeStr) + elapsedStr;
 
-					const line =
+					let line =
 						modelPart +
 						stats +
 						theme.fg("dim", " in ") +
@@ -607,6 +607,29 @@ export default function registerFooter(pi: ExtensionAPI) {
 						gitPart +
 						(isCompact ? "" : theme.fg("dim", " at ")) +
 						timePart;
+
+					if (visibleWidth(line) >= 115) {
+						modelPart = borderColorize(" ") + borderColorize(shortenModelName(
+							ctx.model?.provider,
+							ctx.model?.id || "no-model",
+							true,
+					));
+						statsParts = [
+							thinkingLabel,
+							contextStr,
+							ctx.model?.provider === "openai-codex" || ctx.model?.provider === "lm-studio" ? "" : costStr,
+						].filter(Boolean);
+						stats = statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
+						dirPart = borderColorize(" ") + borderColorize(basename(cwd));
+						line =
+							modelPart +
+							stats +
+							theme.fg("dim", " in ") +
+							dirPart +
+							gitPart +
+							(isCompact ? "" : theme.fg("dim", " at ")) +
+							timePart;
+					}
 					if (width < 5) {
 						publishFooterLayout(width, { widths: [0, 0, 0], totalWidth: width });
 						return [truncateToWidth(line, width, "")];
