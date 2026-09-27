@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ModalEditor } from "../index.ts";
-
-const MATRIX_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>?/\\|[]{}()";
-const EXPECTED_FRAME_INTERVAL_MS = 100;
+import {
+  clearFooterLayout,
+  getFooterCellState,
+  publishFooterLayout,
+  setFooterWidthMeasurer,
+} from "../footer-layout.ts";
 
 function makeEditor(
   keybindings?: { matches: (data: string, key: string) => boolean },
@@ -35,12 +38,6 @@ function makeEditor(
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-function getStreamingRgb(row: string): [number, number, number] {
-  const match = row.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
-  if (!match) throw new Error("Streaming row has no truecolor foreground");
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
 describe("input lock", () => {
@@ -162,67 +159,128 @@ describe("input lock", () => {
   });
 });
 
-describe("streaming frame rendering", () => {
-  test("renders a three-row textbox with one Matrix content row and a right-aligned label", () => {
+describe("streaming lock rendering", () => {
+  test("hides the entire editor frame and emits no Matrix glyphs or streaming label", () => {
     const editor = makeEditor();
+    editor.setText("preserved input");
     editor.lock();
 
-    const rendered = editor.render(50);
-    expect(rendered).toHaveLength(3);
-    for (const row of rendered) expect(visibleWidth(row)).toBe(50);
-    expect(stripAnsi(rendered[0]!)).toBe(`╭${"─".repeat(48)}╮`);
-    const content = stripAnsi(rendered[1]!);
-    expect(content).toMatch(/^│.*│$/);
-    expect([...content.slice(1, -1)].every((char) => MATRIX_CHARACTERS.includes(char))).toBe(true);
-    expect(stripAnsi(rendered[2]!)).toMatch(/^╰.* STREAMING ─╯$/);
+    expect(editor.render(50)).toEqual([]);
+    expect(editor.getText()).toBe("preserved input");
   });
 
-  test("uses fixed #ebbcba for every textbox element in every frame", () => {
+  test("restores the joined editor frame after streaming ends", () => {
     const editor = makeEditor();
-    let now = 0;
-    editor.setNowFn(() => now);
+    editor.setText("preserved input");
+    publishFooterLayout(50, { widths: [8, 20, 8], totalWidth: 40 });
     editor.lock();
+    expect(editor.render(50)).toEqual([]);
 
-    for (let frame = 0; frame < 1_000; frame++) {
-      now = frame * EXPECTED_FRAME_INTERVAL_MS;
-      const rendered = editor.render(50);
-      const frameColors = rendered.flatMap((row) =>
-        [...row.matchAll(/\x1b\[38;2;\d+;\d+;\d+m/g)].map((match) => match[0]),
-      );
-      expect(new Set(frameColors)).toEqual(new Set(["\x1b[38;2;235;188;186m"]));
-      expect(getStreamingRgb(rendered[0]!)).toEqual([235, 188, 186]);
+    editor.unlock();
+
+    const rendered = editor.render(50).map(stripAnsi);
+    expect(rendered[0]).toBe(`╭${"─".repeat(48)}╮`);
+    expect(rendered.at(-1)?.[0]).toBe("├");
+    expect(editor.getText()).toBe("preserved input");
+  });
+
+  test("does not allocate a lock animation timer", () => {
+    const editor = makeEditor();
+    const original = globalThis.setInterval;
+    let timers = 0;
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+      timers++;
+      return original(...args);
+    }) as typeof setInterval;
+    try {
+      editor.lock();
+      editor.render(50);
+      editor.unlock();
+      expect(timers).toBe(0);
+    } finally {
+      globalThis.setInterval = original;
     }
   });
+});
 
-  test("changes Matrix characters every 100ms while retaining its fixed color", () => {
-    const editor = makeEditor();
-    let now = 0;
-    editor.setNowFn(() => now);
+describe("footer-connected editor frame", () => {
+  beforeEach(() => clearFooterLayout());
+  afterEach(() => clearFooterLayout());
+
+  test("publishes the live VIM mode, including streaming, into the first cell", () => {
+    const editor = makeEditor(undefined, () => "FOCUSED");
+    const mode = () => stripAnsi(getFooterCellState().mode);
+    editor.render(40);
+    expect(mode()).toContain("▏ Insert");
+    editor.handleInput("\x1b");
+    editor.render(40);
+    expect(mode()).toContain("█ Normal");
+    editor.handleInput("v");
+    editor.render(40);
+    expect(mode()).toContain("▦ Visual");
+    editor.handleInput("\x1b");
+    editor.handleInput("s");
+    editor.render(40);
+    expect(mode()).toContain("/ Flash()");
+    editor.handleInput("m");
+    editor.handleInput("n");
+    editor.render(40);
+    expect(mode()).toContain("/ Flash(mn)");
     editor.lock();
-
-    const first = editor.render(50);
-    now = 99;
-    expect(editor.render(50)).toEqual(first);
-    now = 100;
-    const next = editor.render(50);
-    expect(next).not.toEqual(first);
-    expect(getStreamingRgb(next[0]!)).toEqual(getStreamingRgb(first[0]!));
-    expect(stripAnsi(next[1]!)).not.toEqual(stripAnsi(first[1]!));
-    const characters = stripAnsi(next[1]!).slice(1, -1);
-    expect([...characters].every((char) => MATRIX_CHARACTERS.includes(char))).toBe(true);
+    editor.render(40);
+    expect(mode()).toContain("Streaming");
+    expect(getFooterCellState().transcript).toBe("◎ Focused");
+    editor.unlock();
   });
 
-  test("handles narrow widths safely and hides the label when it cannot fit", () => {
-    const editor = makeEditor();
-    editor.lock();
+  const layoutFor = (width: number, totalWidth: number) => {
+    const contentWidth = Math.max(0, totalWidth - 4);
+    const modeWidth = Math.min(5, contentWidth);
+    const detailsWidth = Math.min(14, contentWidth - modeWidth);
+    return { widths: [modeWidth, detailsWidth, contentWidth - modeWidth - detailsWidth], totalWidth };
+  };
 
-    for (let width = 0; width <= 14; width++) {
-      const rendered = editor.render(width);
-      expect(rendered).toHaveLength(width <= 1 ? 1 : 3);
-      for (const row of rendered) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+  test("measures footer geometry before the editor's first render", () => {
+    const editor = makeEditor();
+    editor.setText("text");
+    let measurements = 0;
+    setFooterWidthMeasurer((width) => {
+      measurements++;
+      publishFooterLayout(width, layoutFor(width, 24));
+    });
+
+    const divider = stripAnsi(editor.render(40).at(-1)!);
+    expect(measurements).toBe(1);
+    expect(divider[23]).toBe("┬");
+    expect(divider.at(-1)).toBe("╯");
+  });
+
+  test("uses freshly measured cell geometry at the same terminal width", () => {
+    const editor = makeEditor();
+    editor.setText("text");
+    let boxWidth = 24;
+    setFooterWidthMeasurer((width) => publishFooterLayout(width, layoutFor(width, boxWidth)));
+    expect(stripAnsi(editor.render(40).at(-1)!)[23]).toBe("┬");
+    boxWidth = 32;
+    const updatedDivider = stripAnsi(editor.render(40).at(-1)!);
+    expect(updatedDivider[31]).toBe("┬");
+    expect(updatedDivider.at(-1)).toBe("╯");
+    expect(updatedDivider[23]).not.toBe("┬");
+  });
+
+  test("keeps all three cell joins, responsive widths, and no raised transcript pill", () => {
+    const editor = makeEditor(undefined, () => "COLLAPSED");
+    editor.setText("text");
+    for (const width of [8, 14, 40, 80]) {
+      publishFooterLayout(width, layoutFor(width, Math.min(width, Math.max(5, width - 12))));
+      const rendered = editor.render(width).map(stripAnsi);
+      const divider = rendered.at(-1)!;
+      expect(visibleWidth(divider)).toBe(width);
+      expect(divider[0]).toBe("├");
+      expect((divider.match(/┬/g) ?? []).length + (divider.includes("┤") ? 1 : 0)).toBe(3);
+      expect(rendered[0]).toBe(`╭${"─".repeat(width - 2)}╮`);
+      expect(rendered.at(-1)).not.toContain("INSERT");
     }
-    expect(stripAnsi(editor.render(14)[2]!)).not.toContain("STREAMING");
-    expect(stripAnsi(editor.render(15)[2]!)).toBe("╰─ STREAMING ─╯");
   });
 });
 
@@ -271,35 +329,32 @@ describe("modal editor hidden-line border indicators", () => {
     expect(bottom).toMatch(/^╰.*╯$/);
   });
 
-  test("omits indicators when there is no overflow or a transcript tab occupies the center", () => {
+  test("omits indicators without overflow and keeps a full-width top edge with transcript modes", () => {
     const editor = makeEditor(undefined, () => "COLLAPSED");
     expect(stripAnsi(editor.render(50)[0]!)).not.toContain("more");
 
     editor.setText(manyLines);
     const narrowTop = stripAnsi(editor.render(18)[0]!);
-    expect(narrowTop).not.toContain("more");
-    const tabWidth = "╭─COLLAPSED─╮".length;
-    expect(narrowTop).toBe(`╭${"─".repeat(18 - tabWidth - 1)}╯${" ".repeat(tabWidth - 2)}│`);
+    expect(narrowTop).toContain("more");
+    expect(narrowTop).toMatch(/^╭.*╮$/);
   });
 });
 
-describe("raised transcript-tab editor geometry", () => {
-  test("joins transcript labels to normal editor top edges across resizes", () => {
+describe("transcript mode editor geometry", () => {
+  test("keeps the top edge full width across transcript mode changes", () => {
     let mode: "COLLAPSED" | "EXPANDED" | "FOCUSED" = "COLLAPSED";
     const editor = makeEditor(undefined, () => mode);
 
     for (const [label, width] of [["COLLAPSED", 50], ["EXPANDED", 51], ["FOCUSED", 52]] as const) {
       mode = label;
-      const tabWidth = `╭─${label}─╮`.length;
-      const expectedTop = `╭${"─".repeat(width - tabWidth - 1)}╯${" ".repeat(tabWidth - 2)}│`;
-      expect(stripAnsi(editor.render(width)[0]!)).toBe(expectedTop);
+      expect(stripAnsi(editor.render(width)[0]!)).toBe(`╭${"─".repeat(width - 2)}╮`);
       editor.lock();
-      expect(editor.render(width)).toHaveLength(3);
+      expect(editor.render(width)).toEqual([]);
       editor.unlock();
     }
   });
 
-  test("falls back to an unbroken rounded top edge when a raised tab cannot fit", () => {
+  test("keeps an unbroken rounded top edge at narrow widths", () => {
     const editor = makeEditor(undefined, () => "COLLAPSED");
     for (const width of [4, 8, 16]) {
       expect(stripAnsi(editor.render(width)[0]!)).toBe(`╭${"─".repeat(width - 2)}╮`);
@@ -319,8 +374,7 @@ describe("editor state preservation", () => {
     expect(editor.getText()).toBe("kept text");
     expect(editor.getMode()).toBe("normal");
 
-    const rendered = editor.render(50);
-    expect(rendered.length).toBe(3);
+    expect(editor.render(50)).toEqual([]);
 
     editor.unlock();
     expect(editor.isLocked()).toBe(false);
@@ -338,59 +392,5 @@ describe("editor state preservation", () => {
     editor.handleInput("\n");
 
     expect(editor.getText()).toBe("initial");
-  });
-});
-
-describe("timer lifecycle", () => {
-  let originalSetInterval: typeof global.setInterval;
-  let originalClearInterval: typeof global.clearInterval;
-  let timers: Set<ReturnType<typeof setInterval>>;
-  let lastDelay: number | null = null;
-  let lastCallback: (() => void) | null = null;
-
-  beforeEach(() => {
-    timers = new Set();
-    lastDelay = null;
-    lastCallback = null;
-    originalSetInterval = global.setInterval;
-    originalClearInterval = global.clearInterval;
-
-    global.setInterval = ((...args: any[]) => {
-      lastCallback = args[0] as (() => void) | null;
-      lastDelay = args[1] as number | null;
-      const id = Symbol("timer") as unknown as ReturnType<typeof setInterval>;
-      timers.add(id);
-      return id;
-    }) as typeof global.setInterval;
-
-    global.clearInterval = ((id: any) => {
-      timers.delete(id);
-    }) as typeof global.clearInterval;
-  });
-
-  afterEach(() => {
-    global.setInterval = originalSetInterval;
-    global.clearInterval = originalClearInterval;
-  });
-
-  test("lock and unlock start and stop the timer", () => {
-    const editor = makeEditor();
-    editor.lock();
-    expect(timers.size).toBe(1);
-    expect(lastDelay).toBe(EXPECTED_FRAME_INTERVAL_MS);
-    expect(typeof lastCallback).toBe("function");
-
-    editor.unlock();
-    expect(timers.size).toBe(0);
-  });
-
-  test("multiple locks are idempotent", () => {
-    const editor = makeEditor();
-    editor.lock();
-    editor.lock();
-    expect(timers.size).toBe(1);
-
-    editor.unlock();
-    expect(timers.size).toBe(0);
   });
 });

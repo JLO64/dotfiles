@@ -30,6 +30,7 @@ describe("custom-transcript and pi-vim integration", () => {
 			},
 			registerTool: () => {},
 			registerMarkdownTransformer: () => {},
+			registerCommand: () => {},
 			getCommands: () => [],
 		};
 		customTranscript(pi as any);
@@ -47,8 +48,6 @@ describe("custom-transcript and pi-vim integration", () => {
 			},
 		};
 		let editor: { handleInput: (data: string) => void; render: (width: number) => string[] } | undefined;
-		let badge: { render: (width: number) => string[] } | undefined;
-		let widgetCleared = false;
 		let overlayMounts = 0;
 		const vimCtx = {
 			cwd: process.cwd(),
@@ -59,19 +58,7 @@ describe("custom-transcript and pi-vim integration", () => {
 					fg: (_name: string, text: string) => text,
 					inverse: (text: string) => text,
 				},
-				setWidget: (_key: string, widget: any) => {
-					if (!widget) {
-						widgetCleared = true;
-						return;
-					}
-					badge = widget(
-						{ requestRender: () => {} },
-						{
-							fg: (_name: string, text: string) => text,
-							inverse: (text: string) => text,
-						},
-					);
-				},
+				setWidget: () => {},
 				setEditorComponent: (factory: (...args: any[]) => any) => {
 					editor = factory(
 						{ terminal: { rows: 40 }, requestRender: () => {}, showOverlay: () => { overlayMounts++; } },
@@ -83,26 +70,21 @@ describe("custom-transcript and pi-vim integration", () => {
 		};
 
 		handlers.session_start[0]!({}, transcriptCtx);
-		handlers.session_start[1]!({}, vimCtx);
+		handlers.session_start[2]!({}, vimCtx);
 		expect(editor).toBeDefined();
-		expect(badge?.render(80)[0]).toBe(`${" ".repeat(65)}╭─COLLAPSED─╮`);
-		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(64)}╯${" ".repeat(13)}│`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(78)}╮`);
 
 		editor!.handleInput("configured-expand");
 		expect(expanded).toBe(true);
-		expect(badge?.render(80)[0]).toBe(`${" ".repeat(66)}╭─EXPANDED─╮`);
-		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(65)}╯${" ".repeat(12)}│`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(78)}╮`);
 		editor!.handleInput("configured-expand");
 		expect([expanded, statuses.at(-1)]).toEqual([false, "focus transcript"]);
-		expect(badge?.render(80)[0]).toBe(`${" ".repeat(67)}╭─FOCUSED─╮`);
-		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(66)}╯${" ".repeat(11)}│`);
+		expect(editor!.render(80)[0]).toBe(`╭${"─".repeat(78)}╮`);
 		editor!.handleInput("configured-expand");
 		expect([expanded, statuses.at(-1)]).toEqual([false, undefined]);
-		expect(badge?.render(80)[0]).toBe(`${" ".repeat(65)}╭─COLLAPSED─╮`);
 
 		handlers.session_shutdown[0]!({}, transcriptCtx);
-		handlers.session_shutdown[1]!({}, vimCtx);
-		expect(widgetCleared).toBe(true);
+		handlers.session_shutdown[2]!({}, vimCtx);
 		expect(overlayMounts).toBe(0);
 	});
 });

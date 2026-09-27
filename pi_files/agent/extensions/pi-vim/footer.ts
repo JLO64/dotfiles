@@ -1,6 +1,18 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	clearFooterLayout,
+	getFooterCellState,
+	getStreamingIcon,
+	STREAMING_FRAME_INTERVAL_MS,
+	measureFooterCells,
+	publishFooterLayout,
+	renderFooterCellRow,
+	renderFooterTopBorder,
+	setFooterRenderNotifier,
+	setFooterWidthMeasurer,
+} from "./footer-layout.js";
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -272,22 +284,25 @@ async function fetchChatGPTPlusUsage(): Promise<ChatGPTPlusUsage | null> {
 
 // ─── Extension ────────────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export default function registerFooter(pi: ExtensionAPI) {
 	// Shared state for the active session's footer timer
 	const timerState = {
 		lastCompletionTime: Date.now(),
 		hasResponded: false,
 		requestRender: () => {},
+		refreshStreamingTimer: () => {},
 	};
 	let refreshChatGPTPlusPercent: () => void = () => {};
 
 	pi.on("agent_start", async () => {
 		streamingState.isStreaming = true;
+		timerState.refreshStreamingTimer();
 		timerState.requestRender();
 	});
 
 	pi.on("agent_end", async () => {
 		streamingState.isStreaming = false;
+		timerState.refreshStreamingTimer();
 		streamingState.streamedChars = 0;
 		timerState.hasResponded = true;
 		timerState.lastCompletionTime = Date.now();
@@ -309,13 +324,24 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 
-		ctx.ui.setFooter((tui, theme, footerData) => {
+		ctx.ui.setWidget("custom-footer", (tui, theme) => {
 			// Reset timer state for this session
 			timerState.lastCompletionTime = Date.now();
 			timerState.hasResponded = false;
 			timerState.requestRender = () => tui.requestRender();
 
 			let disposed = false;
+			let streamingTimer: ReturnType<typeof setInterval> | undefined;
+			const refreshStreamingTimer = () => {
+				if (streamingState.isStreaming && streamingTimer === undefined) {
+					streamingTimer = setInterval(() => tui.requestRender(), STREAMING_FRAME_INTERVAL_MS);
+				} else if (!streamingState.isStreaming && streamingTimer !== undefined) {
+					clearInterval(streamingTimer);
+					streamingTimer = undefined;
+				}
+			};
+			timerState.refreshStreamingTimer = refreshStreamingTimer;
+			refreshStreamingTimer();
 			let chatGPTPlusUsage: ChatGPTPlusUsage | null = null;
 			let refreshInFlight = false;
 			let refreshQueued = false;
@@ -359,14 +385,15 @@ export default function (pi: ExtensionAPI) {
 				cachedGit = getGitInfo(cwd);
 			};
 
-			// Refresh git status every 3 seconds
-			const gitTimer = setInterval(refreshGit, 3000);
-
-			// Also refresh when pi detects a branch change
-			const branchUnsub = footerData.onBranchChange(() => {
+			// Refresh and rerender git status every 3 seconds
+			const gitTimer = setInterval(() => {
 				refreshGit();
 				tui.requestRender();
-			});
+			}, 3000);
+
+			// Periodic refresh covers branch changes; below-editor widgets do not
+			// receive the footerData branch-change subscription.
+			setFooterRenderNotifier(() => tui.requestRender());
 
 			// Refresh clock every 10 seconds (for the stopwatch timer)
 			const clockTimer = setInterval(() => tui.requestRender(), 10000);
@@ -374,13 +401,16 @@ export default function (pi: ExtensionAPI) {
 			// Refresh ChatGPT Plus usage every 30 seconds
 			const chatGPTPlusTimer = setInterval(refreshChatGPTPlusPercent, 30000);
 
-			return {
+			const widget = {
 				dispose() {
 					disposed = true;
+					clearFooterLayout();
 					clearInterval(gitTimer);
+					if (streamingTimer !== undefined) clearInterval(streamingTimer);
+					streamingTimer = undefined;
+					timerState.refreshStreamingTimer = () => {};
 					clearInterval(clockTimer);
 					clearInterval(chatGPTPlusTimer);
-					branchUnsub();
 					timerState.requestRender = () => {};
 					refreshChatGPTPlusPercent = () => {};
 				},
@@ -474,11 +504,11 @@ export default function (pi: ExtensionAPI) {
 
 					// ─── Build the line ─────────────────────────────────────────
 
-					// Nerd font icon placeholders — replace | with actual icons later
-					const icon = theme.fg("accent", "|");
+					const state = getFooterCellState();
+					const borderColorize = state.borderColorize;
 
 					// Model name
-					const modelPart = theme.fg("accent", " ") + theme.fg("accent", modelName);
+					const modelPart = borderColorize(" ") + borderColorize(modelName);
 
 					// Stats in parentheses: (4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
@@ -548,8 +578,8 @@ export default function (pi: ExtensionAPI) {
 
 					// Directory
 					const dirPart =
-						theme.fg("accent", " ") +
-						theme.fg("accent", theme.fg("accent", displayCwd)) +
+						borderColorize(" ") +
+						borderColorize(displayCwd) +
 						`(${hostname})`;
 
 					// Git info
@@ -561,13 +591,13 @@ export default function (pi: ExtensionAPI) {
 						if (cachedGit.behind > 0) trackParts.push(`↓${cachedGit.behind}`);
 						const trackStr =
 							trackParts.length > 0 ? `${trackParts.join("")}` : "";
-						gitPart = ` ${theme.fg("dim", "on")} ${theme.fg("accent", "")} ${theme.fg("accent", cachedGit.branch)}${dirtyStr}${trackStr}`;
+						gitPart = ` ${theme.fg("dim", "on")} ${borderColorize("")} ${borderColorize(cachedGit.branch)}${dirtyStr}${trackStr}`;
 					}
 
 					// Time
 					const timePart = isCompact
 						? ""
-						: theme.fg("accent", "󰥔 ") + theme.fg("accent", timeStr) + elapsedStr;
+						: borderColorize("󰥔 ") + borderColorize(timeStr) + elapsedStr;
 
 					const line =
 						modelPart +
@@ -577,9 +607,47 @@ export default function (pi: ExtensionAPI) {
 						gitPart +
 						(isCompact ? "" : theme.fg("dim", " at ")) +
 						timePart;
-					return [truncateToWidth(line, width)];
+					if (width < 5) {
+						publishFooterLayout(width, { widths: [0, 0, 0], totalWidth: width });
+						return [truncateToWidth(line, width, "")];
+					}
+
+					const mode = streamingState.isStreaming
+						? state.mode.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, getStreamingIcon(Math.floor(Date.now() / STREAMING_FRAME_INTERVAL_MS)))
+						: state.mode;
+					const layout = measureFooterCells(line, width);
+					publishFooterLayout(width, layout);
+					const rows = renderFooterCellRow(
+						[
+							mode,
+							line,
+							borderColorize(`\x1b[1m${state.transcript}\x1b[22m`),
+						],
+						layout,
+						borderColorize,
+					);
+					return streamingState.isStreaming
+						? [renderFooterTopBorder(width, layout, borderColorize), ...rows]
+						: rows;
 				},
 			};
-		});
+			setFooterWidthMeasurer((width) => {
+				widget.render(width);
+			});
+			return widget;
+		}, { placement: "belowEditor" });
+		// Keep Pi's built-in footer from appearing alongside the below-editor footer.
+		// The empty component has zero rows, so it introduces no vertical spacer.
+		ctx.ui.setFooter(() => ({ render: () => [], invalidate() {} }));
+	});
+
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		ctx.ui.setWidget("custom-footer", undefined);
+		ctx.ui.setFooter(undefined);
+		clearFooterLayout();
+		timerState.requestRender = () => {};
+		timerState.refreshStreamingTimer = () => {};
+		refreshChatGPTPlusPercent = () => {};
 	});
 }

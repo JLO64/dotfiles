@@ -87,11 +87,9 @@ import {
 import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
 import { createAgentAndSkillAutocompleteProvider } from "./autocomplete.js";
 import { SpellcheckService, type SpellSpan } from "./spellcheck.js";
-import {
-  getRaisedTabLayout,
-  TranscriptModeBadge,
-  type TranscriptMode,
-} from "./transcript-mode-badge.js";
+import { type TranscriptMode } from "./transcript-mode-badge.js";
+import { getFooterLayout, getStreamingIcon, renderFooterDivider, setFooterCellState, STREAMING_FRAME_INTERVAL_MS } from "./footer-layout.js";
+import registerFooter from "./footer.js";
 
 import type {
   Mode,
@@ -137,8 +135,6 @@ const BRACKETED_PASTE_END = "\x1b[201~";
 const BRACKETED_PASTE_END_TAIL = BRACKETED_PASTE_END.slice(1);
 const MAX_COUNT = 9999;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
-const STREAMING_FRAME_INTERVAL_MS = 100;
-const STREAMING_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>?/\\|[]{}()";
 const STREAMING_COLOR_START = "\x1b[38;2;235;188;186m";
 const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
@@ -158,11 +154,6 @@ type EditorSnapshot = {
 };
 
 type TransitionState = "none" | "undo" | "redo";
-
-type StreamingFrame = {
-  index: number;
-  seed: number;
-};
 
 type ModeColorizers = {
   insert: (s: string) => string;
@@ -212,9 +203,6 @@ export class ModalEditor extends CustomEditor {
 
   // Working / input-lock state
   private locked: boolean = false;
-  private lockTimer: ReturnType<typeof setInterval> | null = null;
-  private lockStartTime: number = 0;
-  private streamingFrame: StreamingFrame = { index: 0, seed: 12345 };
   private nowFn: () => number = Date.now;
 
   // Unnamed register
@@ -257,15 +245,10 @@ export class ModalEditor extends CustomEditor {
   setNowFn(fn: () => number): void { this.nowFn = fn; }
   isLocked(): boolean { return this.locked; }
   lock(): void {
-    this.stopLockTimer();
     this.locked = true;
-    this.lockStartTime = this.nowFn();
-    this.streamingFrame = this.createStreamingFrame(0);
-    this.startLockTimer();
     this.requestRender();
   }
   unlock(prefillText?: string | null): void {
-    this.stopLockTimer();
     this.locked = false;
     if (prefillText && prefillText.length > 0) {
       this.setText(prefillText);
@@ -1089,25 +1072,6 @@ export class ModalEditor extends CustomEditor {
   private requestRender(): void {
     const editor = this as unknown as { tui?: { requestRender?: () => void } };
     editor.tui?.requestRender?.();
-  }
-
-  private startLockTimer(): void {
-    this.stopLockTimer();
-    const timer = setInterval(() => {
-      this.refreshStreamingFrame();
-      this.requestRender();
-    }, STREAMING_FRAME_INTERVAL_MS);
-    if (typeof (timer as any).unref === "function") {
-      (timer as any).unref();
-    }
-    this.lockTimer = timer;
-  }
-
-  private stopLockTimer(): void {
-    if (this.lockTimer) {
-      clearInterval(this.lockTimer);
-      this.lockTimer = null;
-    }
   }
 
   private enableHardwareCursor(): void {
@@ -3601,12 +3565,8 @@ export class ModalEditor extends CustomEditor {
       ...editorLines.slice(bottomBorderIndex + 1),
     ];
     const borderColorize = this.getModeColorizer(this.borderColorizers);
-    const tabLayout = this.getTranscriptMode
-      ? getRaisedTabLayout(width, this.getTranscriptMode())
-      : null;
-    const topFrame = tabLayout
-      ? `╭${"─".repeat(Math.max(0, tabLayout.tabLeft - 1))}╯${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}│`
-      : `╭${"─".repeat(innerWidth)}╮`;
+    this.refreshFooterCellState();
+    const topFrame = `╭${"─".repeat(innerWidth)}╮`;
     const top = borderColorize(this.renderBorderOverflowIndicator(
       topFrame,
       this.hiddenTopLineCount,
@@ -3623,6 +3583,7 @@ export class ModalEditor extends CustomEditor {
       width,
       borderColorize,
       this.hiddenBottomLineCount,
+      getFooterLayout(width),
     );
 
     this.syncCursorShape();
@@ -3641,7 +3602,6 @@ export class ModalEditor extends CustomEditor {
 
   getBorderColorizer(): (s: string) => string {
     if (this.locked) {
-      this.refreshStreamingFrame();
       return this.getStreamingColorizer();
     }
     return this.getModeColorizer(this.borderColorizers);
@@ -3678,7 +3638,12 @@ export class ModalEditor extends CustomEditor {
     width: number,
     borderColorize: (s: string) => string,
     hiddenLineCount: number,
+    footerLayout: ReturnType<typeof getFooterLayout> = null,
   ): string {
+    if (footerLayout !== null && width >= 5) {
+      return this.renderConnectedDivider(width, footerLayout, borderColorize);
+    }
+
     const maxLabelWidth = Math.max(0, width - 6);
     if (maxLabelWidth === 0) {
       return borderColorize(`╰${"─".repeat(Math.max(0, width - 2))}╯`);
@@ -3706,6 +3671,54 @@ export class ModalEditor extends CustomEditor {
     return visibleWidth(bottom) > width
       ? truncateToWidth(bottom, width, "")
       : bottom;
+  }
+
+  private renderConnectedDivider(
+    width: number,
+    layout: NonNullable<ReturnType<typeof getFooterLayout>>,
+    borderColorize: (text: string) => string,
+  ): string {
+    return renderFooterDivider(width, layout, borderColorize);
+  }
+
+  refreshFooterCellState(): void {
+    const borderColorize = this.getBorderColorizer();
+    const modeColorize = this.locked
+      ? this.getStreamingColorizer()
+      : this.getModeColorizer(this.labelColorizers);
+    const rawModeLabel = this.getModeLabel();
+    let modeIcon: string;
+    let modeLabel: string;
+    if (this.locked) {
+      modeIcon = getStreamingIcon(Math.floor(this.nowFn() / STREAMING_FRAME_INTERVAL_MS));
+      modeLabel = "Streaming";
+    } else if (this.flashState) {
+      modeIcon = "/";
+      modeLabel = `Flash(${this.flashState.pattern})`;
+    } else if (this.isShellInput()) {
+      modeIcon = "!";
+      modeLabel = "Shell";
+    } else {
+      modeIcon = this.mode === "insert" ? "▏" : this.mode === "visual" ? "▦" : "█";
+      modeLabel = rawModeLabel.replace(
+        /^[A-Z]+/,
+        (word) => word.charAt(0) + word.slice(1).toLowerCase(),
+      );
+    }
+    const mode = modeColorize(`\x1b[1m${modeIcon} ${modeLabel}\x1b[22m`);
+    const transcriptMode = this.getTranscriptMode?.() ?? "COLLAPSED";
+    const transcriptIcons: Record<TranscriptMode, string> = {
+      COLLAPSED: "",
+      EXPANDED: "",
+      FOCUSED: "◎",
+    };
+    const transcriptLabel = transcriptMode.charAt(0) + transcriptMode.slice(1).toLowerCase();
+    const transcript = `${transcriptIcons[transcriptMode]} ${transcriptLabel}`;
+    setFooterCellState({
+      mode,
+      transcript,
+      borderColorize,
+    });
   }
 
   private getModeLabel(): string {
@@ -3748,60 +3761,14 @@ export class ModalEditor extends CustomEditor {
     return "NORMAL";
   }
 
-  private createStreamingFrame(index: number): StreamingFrame {
-    return {
-      index,
-      seed: (Math.imul(index + 1, 1103515245) + 12345) >>> 0,
-    };
-  }
-
-  /** Advances the single frame shared by the textbox and transcript pill. */
-  private refreshStreamingFrame(): StreamingFrame {
-    const index = Math.max(0, Math.floor(
-      (this.nowFn() - this.lockStartTime) / STREAMING_FRAME_INTERVAL_MS,
-    ));
-    if (index !== this.streamingFrame.index) {
-      this.streamingFrame = this.createStreamingFrame(index);
-    }
-    return this.streamingFrame;
-  }
-
-  private nextStreamingRandom(seed: number): number {
-    return (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-  }
-
   private getStreamingColorizer(): (s: string) => string {
     return (text: string) => `${STREAMING_COLOR_START}${text}${FOREGROUND_RESET}`;
   }
 
   private renderLocked(width: number): string[] {
-    if (width <= 0) return [""];
-
-    this.refreshStreamingFrame();
-    const colorize = this.getStreamingColorizer();
-    if (width === 1) return [colorize("╳")];
-
-    const innerWidth = width - 2;
-    const tabLayout = this.getTranscriptMode
-      ? getRaisedTabLayout(width, this.getTranscriptMode())
-      : null;
-    const top = tabLayout
-      ? `${colorize("╭")}${colorize("─".repeat(Math.max(0, tabLayout.tabLeft - 1)))}${colorize("╯")}${" ".repeat(Math.max(0, tabLayout.tabWidth - 2))}${colorize("│")}`
-      : colorize(`╭${"─".repeat(innerWidth)}╮`);
-
-    let seed = this.streamingFrame.seed;
-    let random = "";
-    for (let i = 0; i < innerWidth; i++) {
-      seed = this.nextStreamingRandom(seed);
-      random += STREAMING_CHARACTERS[seed % STREAMING_CHARACTERS.length];
-    }
-
-    const label = "STREAMING";
-    const labelFits = width >= label.length + 6;
-    const bottom = labelFits
-      ? `╰${"─".repeat(width - label.length - 5)} ${label} ─╯`
-      : `╰${"─".repeat(innerWidth)}╯`;
-    return [top, colorize(`│${random}│`), colorize(bottom)];
+    this.refreshFooterCellState();
+    getFooterLayout(width);
+    return [];
   }
 }
 
@@ -3875,6 +3842,7 @@ function replaceAssistantTextBlock(
 }
 
 export default function (pi: ExtensionAPI) {
+  registerFooter(pi);
   const historyService = new ZshHistoryService();
   let activeTui: {
     terminal?: { write: (data: string) => void };
@@ -3901,7 +3869,6 @@ export default function (pi: ExtensionAPI) {
   let pendingQuestions: string | null = null;
   let transcriptCycle: (() => void) | undefined;
   let transcriptMode: TranscriptMode = "COLLAPSED";
-  let transcriptModeBadge: TranscriptModeBadge | null = null;
   const removeTranscriptCycleListener = (pi as any).events?.on(
     "custom-transcript:cycle",
     (cycle: unknown) => {
@@ -3913,7 +3880,8 @@ export default function (pi: ExtensionAPI) {
     (mode: unknown) => {
       if (mode !== "COLLAPSED" && mode !== "EXPANDED" && mode !== "FOCUSED") return;
       transcriptMode = mode;
-      transcriptModeBadge?.setMode(mode);
+      activeEditor?.refreshFooterCellState();
+      activeEditor?.requestRender();
     },
   );
 
@@ -3928,15 +3896,6 @@ export default function (pi: ExtensionAPI) {
       createAgentAndSkillAutocompleteProvider(current, ctx.cwd, () => pi.getCommands()),
     );
     const appTheme = ctx.ui.theme;
-    ctx.ui.setWidget("pi-vim-transcript-mode", (tui, theme) => {
-      transcriptModeBadge = new TranscriptModeBadge(
-        theme,
-        transcriptMode,
-        () => tui.requestRender(),
-        () => activeEditor?.getBorderColorizer() ?? ((text: string) => theme.fg("accent", text)),
-      );
-      return transcriptModeBadge;
-    });
     ctx.ui.setEditorComponent((tui, theme, kb) => {
       activeTui = tui as typeof activeTui;
       const labelColorizers: ModeColorizers = {
@@ -4001,8 +3960,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    ctx.ui.setWidget("pi-vim-transcript-mode", undefined);
-    transcriptModeBadge = null;
     removeTranscriptCycleListener?.();
     removeTranscriptModeListener?.();
     transcriptCycle = undefined;

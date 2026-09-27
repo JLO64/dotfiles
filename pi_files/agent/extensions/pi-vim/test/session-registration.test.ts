@@ -136,11 +136,11 @@ describe("session registration", () => {
       mockCtx,
     );
 
-    expect(events).toEqual(["working:false", "widget", "editor"]);
+    expect(events).toEqual(["working:false", "editor"]);
 
     // Clean up the file watcher and other session resources.
     handlers["session_shutdown"]?.({}, mockCtx);
-    expect(events).toEqual(["working:false", "widget", "editor", "widget:clear"]);
+    expect(events).toEqual(["working:false", "editor"]);
   });
 });
 
