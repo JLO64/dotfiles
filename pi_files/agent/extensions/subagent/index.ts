@@ -4,10 +4,7 @@
  * Spawns a separate `pi` process for each subagent invocation,
  * giving it an isolated context window.
  *
- * Supports three modes:
- *   - Single: { agent: "name", task: "..." }
- *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
- *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
+ * Supports single-agent and parallel task execution, plus continuing existing sessions.
  *
  * Uses JSON mode to capture structured output from subagents.
  */
@@ -28,7 +25,7 @@ import {
 	getMarkdownTheme,
 	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, resolveRestrictedAgent } from "./agents.ts";
 import { createPrivateSession, getPrivateSession, getPrivateSessionState, privateSessionDir, setPrivateSessionState, withPrivateSessionLock } from "./session-store.ts";
@@ -62,6 +59,9 @@ const PER_TASK_OUTPUT_CAP = 50 * 1024;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
 const FOAM_COLOR_START = "\x1b[38;2;156;207;216m";
 const LOVE_COLOR_START = "\x1b[38;2;235;111;146m";
+const STREAMING_COLOR_START = "\x1b[38;2;235;188;186m";
+const STREAMING_ICONS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const STREAMING_FRAME_INTERVAL_MS = 100;
 const FOREGROUND_RESET = "\x1b[39m";
 
 function colorize(colorStart: string, text: string): string {
@@ -78,6 +78,45 @@ function foamColorize(text: string): string {
 
 function loveColorize(text: string): string {
 	return colorize(LOVE_COLOR_START, text);
+}
+
+export function getSubagentSpinnerFrame(timestamp: number): string {
+	const frame = Math.floor(timestamp / STREAMING_FRAME_INTERVAL_MS);
+	return STREAMING_ICONS[((frame % STREAMING_ICONS.length) + STREAMING_ICONS.length) % STREAMING_ICONS.length]!;
+}
+
+export function getResultBorderColorizer(
+	status: "running" | "success" | "failure",
+	theme: { fg: (color: any, text: string) => string },
+): (text: string) => string {
+	if (status === "running") return (text) => colorize(STREAMING_COLOR_START, text);
+	if (status === "failure") return loveColorize;
+	return (text) => theme.fg("accent", text);
+}
+
+export function renderResultBox(lines: string[], width: number, colorizeBorder: (text: string) => string): string[] {
+	if (width < 3) return lines.map((line) => truncateToWidth(line.startsWith("\u0000") ? line.slice(1) : line, Math.max(0, width), ""));
+	const innerWidth = width - 2;
+	const frame = (left: string, fill: string, right: string) =>
+		`${colorizeBorder(left)}${colorizeBorder(fill.repeat(Math.max(0, innerWidth)))}${colorizeBorder(right)}`;
+	const body = lines.map((line) => {
+		const connectedHeader = line.startsWith("\u0000");
+		const content = connectedHeader ? line.slice(1) : line;
+		const indented = connectedHeader ? content : ` ${content}`;
+		const clipped = visibleWidth(indented) > innerWidth ? truncateToWidth(indented, innerWidth, "") : indented;
+		const left = connectedHeader ? "├" : "│";
+		return `${colorizeBorder(left)}${clipped}${" ".repeat(Math.max(0, innerWidth - visibleWidth(clipped)))}${colorizeBorder("│")}`;
+	});
+	return [frame("╭", "─", "╮"), ...body, frame("╰", "─", "╯")];
+}
+
+function boxedResult(content: Container | Text, borderColorize: (text: string) => string) {
+	return {
+		render(width: number) {
+			return renderResultBox(content.render(Math.max(1, width - 2)), width, borderColorize);
+		},
+		invalidate() { content.invalidate(); },
+	};
 }
 
 class CompactMarkdown extends Markdown {
@@ -239,7 +278,7 @@ interface SingleResult {
 }
 
 interface SubagentDetails {
-	mode: "single" | "parallel" | "chain";
+	mode: "single" | "parallel";
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
@@ -412,7 +451,7 @@ function statusIcon(
 		case "failure":
 			return theme.fg("error", "");
 		case "running":
-			return theme.fg("warning", "");
+			return colorize(STREAMING_COLOR_START, getSubagentSpinnerFrame(Date.now()));
 	}
 }
 
@@ -430,21 +469,14 @@ function renderFooter(
 
 export function aggregateSummary(
 	results: SingleResult[],
-	mode: "chain" | "parallel",
+	mode: "parallel",
 	theme: { fg: (color: any, text: string) => string },
 ): string {
 	const contextTokens = results.reduce((total, result) => total + result.usage.contextTokens, 0);
 	const durations = results.flatMap((result) =>
 		typeof result.durationMs === "number" ? [result.durationMs] : [],
 	);
-	const durationMs =
-		mode === "chain"
-			? durations.length === results.length
-				? durations.reduce((total, duration) => total + duration, 0)
-				: undefined
-			: durations.length > 0
-				? Math.max(...durations)
-				: undefined;
+	const durationMs = durations.length > 0 ? Math.max(...durations) : undefined;
 	const turns = results.reduce((total, result) => total + result.usage.turns, 0);
 	// Streaming placeholders and in-progress results may not have all metadata yet.
 	// Compare only known metadata so a completed task does not make the aggregate
@@ -557,8 +589,21 @@ type DisplayTheme = {
 	inverse: (text: string) => string;
 };
 
-function addSectionHeader(container: Container, title: "Input" | "Tools" | "Output", theme: DisplayTheme): void {
-	container.addChild(new Text(theme.fg("text", `${theme.inverse(theme.bold(title))}`), 0, 0));
+export function formatSectionHeader(
+	title: "Input" | "Tools" | "Output",
+	theme: DisplayTheme,
+	borderColorize: (text: string) => string,
+): string {
+	return `\u0000${borderColorize("─")}${borderColorize("")}${theme.bold(borderColorize(title))}${borderColorize("")}`;
+}
+
+function addSectionHeader(
+	container: Container,
+	title: "Input" | "Tools" | "Output",
+	theme: DisplayTheme,
+	borderColorize: (text: string) => string,
+): void {
+	container.addChild(new Text(formatSectionHeader(title, theme, borderColorize), 0, 0));
 }
 
 function addToolDisplayItems(container: Container, items: DisplayItem[], theme: DisplayTheme): void {
@@ -603,16 +648,17 @@ function addExpandedResultSections(
 	result: SingleResult,
 	theme: DisplayTheme,
 	mdTheme: ReturnType<typeof getMarkdownTheme>,
+	borderColorize: (text: string) => string,
 ): void {
 	const displayItems = resultDisplayItems(result);
-	addSectionHeader(container, "Input", theme);
+	addSectionHeader(container, "Input", theme, borderColorize);
 	container.addChild(new CompactMarkdown(compactMarkdownForDisplay(result.task), 1, 0, mdTheme));
 	container.addChild(new Spacer(1));
-	addSectionHeader(container, "Tools", theme);
+	addSectionHeader(container, "Tools", theme, borderColorize);
 	addToolDisplayItems(container, displayItems, theme);
 	if (displayItems.some(isOutputDisplayItem)) {
 		container.addChild(new Spacer(1));
-		addSectionHeader(container, "Output", theme);
+		addSectionHeader(container, "Output", theme, borderColorize);
 		addOutputDisplayItems(container, displayItems, mdTheme);
 	}
 }
@@ -944,7 +990,7 @@ async function runSingleAgent(
 				elapsedTimer = setInterval(() => {
 					currentResult.durationMs = Date.now() - startedAt;
 					emitUpdate();
-				}, 1000);
+				}, STREAMING_FRAME_INTERVAL_MS);
 			}
 
 			proc.on("close", (code) => {
@@ -1038,13 +1084,6 @@ const TaskItem = Type.Object({
 	contextTokenLimit: ContextTokenLimit,
 });
 
-const ChainItem = Type.Object({
-	agent: Type.String({ description: "Name of the agent to invoke" }),
-	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
-	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
-	contextTokenLimit: ContextTokenLimit,
-});
-
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 	description: 'Which agent directories to use. Default: "user". Use "both" to include project-local agents.',
 	default: "user",
@@ -1054,7 +1093,6 @@ const SubagentParams = Type.Object({
 	agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
 	task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
-	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	continueHandle: Type.Optional(Type.String({ description: "Opaque handle returned by a previous subagent call" })),
 	agentScope: Type.Optional(AgentScopeSchema),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
@@ -1067,7 +1105,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder), continue (continueHandle + task).",
+			"Modes: single (agent + task), parallel (tasks array), continue (continueHandle + task).",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
 		].join(" "),
@@ -1081,19 +1119,18 @@ export default function (pi: ExtensionAPI) {
 				agents.find((agent) => agent.name === name) ?? resolveRestrictedAgent(ctx.cwd, agentScope, name);
 
 			const hasContinue = Boolean(params.continueHandle && params.task);
-			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasContinue);
+			const modeCount = Number(hasTasks) + Number(hasSingle) + Number(hasContinue);
 
 			const makeDetails =
-				(mode: "single" | "parallel" | "chain") =>
+				(mode: "single" | "parallel") =>
 				(results: SingleResult[]): SubagentDetails => ({
 					mode,
 					agentScope,
 					projectAgentsDir: discovery.projectAgentsDir,
 					results,
-					totalTasks: mode === "chain" ? params.chain?.length : mode === "parallel" ? params.tasks?.length : undefined,
+					totalTasks: mode === "parallel" ? params.tasks?.length : undefined,
 				});
 
 			if (hasContinue && params.continueHandle && params.task) {
@@ -1151,65 +1188,6 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: makeDetails("single")([]),
-				};
-			}
-
-			if (params.chain && params.chain.length > 0) {
-				const results: SingleResult[] = [];
-				let previousOutput = "";
-
-				for (let i = 0; i < params.chain.length; i++) {
-					const step = params.chain[i];
-					const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
-
-					// Create update callback that includes all previous results
-					const chainUpdate: OnUpdateCallback | undefined = onUpdate
-						? (partial) => {
-								// Combine completed results with current streaming result
-								const currentResult = partial.details?.results[0];
-								if (currentResult) {
-									const allResults = [...results, currentResult];
-									onUpdate({
-										content: partial.content,
-										details: makeDetails("chain")(allResults),
-									});
-								}
-							}
-						: undefined;
-
-					const agent = resolveAgent(step.agent);
-					const result = await runLockedAgent(
-						ctx.cwd,
-						agent,
-						step.agent,
-						taskWithContext,
-						step.cwd,
-						i + 1,
-						resolveContextTokenLimit(step.contextTokenLimit, agent?.contextTokenLimit),
-						signal,
-						chainUpdate,
-						makeDetails("chain"),
-						agentScope,
-					);
-					results.push(result);
-
-					const isError = isFailedResult(result);
-					if (isError) {
-						const errorMsg = getResultOutput(result);
-						const reportNote = await failureReportNote(result, errorMsg);
-						return {
-							content: [
-								{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}\n\nSession handle: ${result.sessionHandle}\n${reportNote}` },
-							],
-							details: makeDetails("chain")(results),
-							isError: true,
-						};
-					}
-					previousOutput = getFinalOutput(result.messages);
-				}
-				return {
-					content: [{ type: "text", text: `${getFinalOutput(results[results.length - 1].messages) || "(no output)"}\n\nSession handles (one per chain step): ${results.map((result) => result.sessionHandle).join(", ")}` }],
-					details: makeDetails("chain")(results),
 				};
 			}
 
@@ -1349,14 +1327,6 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			if (args.chain && args.chain.length > 0) {
-				return new Text(
-					theme.fg("toolTitle", theme.bold("subagent ")) +
-						theme.fg("accent", `chain (${args.chain.length} steps)`),
-					0,
-					0,
-				);
-			}
 			if (args.tasks && args.tasks.length > 0) {
 				return new Text(
 					theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -1395,7 +1365,9 @@ export default function (pi: ExtensionAPI) {
 				const r = details.results[0];
 				const isRunning = isRunningResult(r);
 				const isError = isFailedResult(r);
-				const icon = statusIcon(isRunning ? "running" : isError ? "failure" : "success", theme);
+				const status = isRunning ? "running" : isError ? "failure" : "success";
+				const icon = statusIcon(status, theme);
+				const borderColorize = getResultBorderColorizer(status, theme);
 
 				if (expanded) {
 					const container = new Container();
@@ -1405,7 +1377,7 @@ export default function (pi: ExtensionAPI) {
 					if (isError && r.errorMessage)
 						container.addChild(new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0));
 					container.addChild(new Spacer(1));
-					addExpandedResultSections(container, r, theme, mdTheme);
+					addExpandedResultSections(container, r, theme, mdTheme, borderColorize);
 					const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 					if (summary) {
 						container.addChild(new Spacer(1));
@@ -1414,7 +1386,7 @@ export default function (pi: ExtensionAPI) {
 						const usageStr = formatUsageStats(r.usage, r.model, r.contextTokenLimit);
 						if (usageStr) container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
 					}
-					return container;
+					return boxedResult(container, borderColorize);
 				}
 
 				let text = theme.fg("text", taskSummary(r.task));
@@ -1425,62 +1397,16 @@ export default function (pi: ExtensionAPI) {
 					text += `\n${theme.fg("error", detail)}`;
 				}
 				text += `\n${renderFooter(icon, { ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, r.usage, theme)}`;
-				return new Text(text, 0, 0);
-			}
-
-			if (details.mode === "chain") {
-				if (expanded) {
-					const container = new Container();
-
-					for (const [index, r] of details.results.entries()) {
-						const rIcon = statusIcon(
-							isRunningResult(r) ? "running" : r.exitCode === 0 ? "success" : "failure",
-							theme,
-						);
-
-						if (index > 0) container.addChild(new Spacer(1));
-						container.addChild(
-							new Text(
-								`${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${rIcon}`,
-								0,
-								0,
-							),
-						);
-						addExpandedResultSections(container, r, theme, mdTheme);
-
-						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
-						if (summary) container.addChild(new Text(summary, 0, 0));
-						else {
-							const stepUsage = formatUsageStats(r.usage, r.model, r.contextTokenLimit);
-							if (stepUsage) container.addChild(new Text(theme.fg("dim", stepUsage), 0, 0));
-						}
-					}
-
-					container.addChild(new Spacer(1));
-					container.addChild(new Text(aggregateSummary(details.results, "chain", theme), 0, 0));
-					return container;
-				}
-
-				const isRunning = details.results.some(isRunningResult);
-				const hasFailure = details.results.some(isFailedResult);
-				const icon = statusIcon(isRunning ? "running" : hasFailure ? "failure" : "success", theme);
-				const taskLines = details.results
-					.map((r) => {
-						const rIcon = statusIcon(
-							isRunningResult(r) ? "running" : isFailedResult(r) ? "failure" : "success",
-							theme,
-						);
-						return `${theme.fg("accent", r.agent)}${theme.fg("muted", ": ")}${rIcon} ${theme.fg("text", taskSummary(r.task))}`;
-					})
-					.join("\n");
-				return new Text(`${taskLines}\n${icon} ${aggregateSummary(details.results, "chain", theme)}`, 0, 0);
+				return boxedResult(new Text(text, 0, 0), borderColorize);
 			}
 
 			if (details.mode === "parallel") {
 				const running = details.results.filter((r) => r.exitCode === -1).length;
 				const failCount = details.results.filter((r) => r.exitCode !== -1 && isFailedResult(r)).length;
 				const isRunning = running > 0;
-				const icon = statusIcon(isRunning ? "running" : failCount > 0 ? "failure" : "success", theme);
+				const status = isRunning ? "running" : failCount > 0 ? "failure" : "success";
+				const icon = statusIcon(status, theme);
+				const borderColorize = getResultBorderColorizer(status, theme);
 
 				if (expanded) {
 					const container = new Container();
@@ -1495,7 +1421,7 @@ export default function (pi: ExtensionAPI) {
 						container.addChild(
 							new Text(`${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${rIcon}`, 0, 0),
 						);
-						addExpandedResultSections(container, r, theme, mdTheme);
+						addExpandedResultSections(container, r, theme, mdTheme, borderColorize);
 
 						const summary = renderSummary({ ...r, contextTokens: r.usage.contextTokens, turns: r.usage.turns }, theme);
 						if (summary) container.addChild(new Text(summary, 0, 0));
@@ -1507,7 +1433,7 @@ export default function (pi: ExtensionAPI) {
 
 					container.addChild(new Spacer(1));
 					container.addChild(new Text(aggregateSummary(details.results, "parallel", theme), 0, 0));
-					return container;
+					return boxedResult(container, borderColorize);
 				}
 
 				const taskLines = details.results
@@ -1519,7 +1445,7 @@ export default function (pi: ExtensionAPI) {
 						return `${theme.fg("accent", r.agent)}${theme.fg("muted", ": ")}${rIcon} ${theme.fg("text", taskSummary(r.task))}`;
 					})
 					.join("\n");
-				return new Text(`${taskLines}\n${icon} ${aggregateSummary(details.results, "parallel", theme)}`, 0, 0);
+				return boxedResult(new Text(`${taskLines}\n${icon} ${aggregateSummary(details.results, "parallel", theme)}`, 0, 0), borderColorize);
 			}
 
 			const text = result.content[0];

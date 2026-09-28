@@ -4,7 +4,7 @@ The subagent extension launches each agent in a separate pi process. Agent profi
 
 ## Persistent private sessions and Continue
 
-Every subagent invocation creates a persistent session in `~/.pi/agent/subagent-sessions/sessions/`, outside Pi's normal project session directories and default `/resume` listings. The tool returns a random opaque **Session handle** in progress and final text (each chain step and parallel task has its own handle). Handles and session files are private to the current OS user. If the parent agent is interrupted before it returns a tool result, recover the handle from `owner.json` filenames in that directory; the handle is the UUID-named parent directory.
+Every subagent invocation creates a persistent session in `~/.pi/agent/subagent-sessions/sessions/`, outside Pi's normal project session directories and default `/resume` listings. The tool returns a random opaque **Session handle** in progress and final text (each parallel task has its own handle). Handles and session files are private to the current OS user. If the parent agent is interrupted before it returns a tool result, recover the handle from `owner.json` filenames in that directory; the handle is the UUID-named parent directory.
 
 Continue an existing subagent with the same session handle and a new prompt:
 
@@ -12,7 +12,7 @@ Continue an existing subagent with the same session handle and a new prompt:
 {"continueHandle":"<session handle>","task":"Continue the investigation and report the remaining issue."}
 ```
 
-Continue reuses the original working directory, agent profile, and context-token limit. A missing or changed profile is rejected rather than silently switching identity. Session histories are not replayed as new prompts, so previous tool calls are not automatically rerun. If a process is interrupted during a tool operation, inspect the persisted conversation and workspace before continuing because the operation's completion may be uncertain. All runs, including initial single/parallel/chain runs, and Continue requests are serialized with a private per-session lock. Sessions found active after an interrupted parent are marked uncertain, and the next prompt receives an explicit warning to inspect effects before proceeding. Before Continue, the extension scans the persisted session transcript for tool calls without results; if any are found (or the transcript cannot be read), it refuses to prompt rather than attempting an unsafe replay or synthesizing a result. This does not repair the transcript: inspect its tool effects manually before deciding how to proceed.
+Continue reuses the original working directory, agent profile, and context-token limit. A missing or changed profile is rejected rather than silently switching identity. Session histories are not replayed as new prompts, so previous tool calls are not automatically rerun. If a process is interrupted during a tool operation, inspect the persisted conversation and workspace before continuing because the operation's completion may be uncertain. All runs, including initial single/parallel runs, and Continue requests are serialized with a private per-session lock. Sessions found active after an interrupted parent are marked uncertain, and the next prompt receives an explicit warning to inspect effects before proceeding. Before Continue, the extension scans the persisted session transcript for tool calls without results; if any are found (or the transcript cannot be read), it refuses to prompt rather than attempting an unsafe replay or synthesizing a result. This does not repair the transcript: inspect its tool effects manually before deciding how to proceed.
 
 ## Agent profile fields
 
@@ -47,7 +47,7 @@ If an isolation field is omitted or `false`, normal pi discovery remains enabled
 
 ## Context limits
 
-Pass `contextTokenLimit` (a positive finite integer) on a single invocation, or on each parallel task / chain step. The precedence is invocation item, selected profile's `context-token-limit`, then `120000`.
+Pass `contextTokenLimit` (a positive finite integer) on a single invocation or on each parallel task. The precedence is invocation item, selected profile's `context-token-limit`, then `120000`.
 
 ```json
 {"agent":"example","task":"Inspect the renderer","contextTokenLimit":90000}
@@ -59,9 +59,9 @@ Pass `contextTokenLimit` (a positive finite integer) on a single invocation, or 
 
 The child checks `ctx.getContextUsage().tokens` before each model request. At 50%, 75%, and 90% it receives one ephemeral warning with its percentage consumed. At 100% or higher it receives one final instruction to wrap up immediately and start no new work. If a request crosses multiple thresholds, only the strongest warning is injected. These messages are request-local context-event injections: they do not persist in the child session or interrupt tool execution.
 
-Each warning that actually fires is also shown chronologically in that child's expanded Output section (including each expanded parallel or chain child), with warning styling at 50/75% and error styling at 90/100%. Warnings are omitted from collapsed rows and aggregate summaries. The child sends these diagnostics over stderr using a versioned JSON marker; valid marker lines are removed from displayed stderr, while ordinary, malformed, and partial stderr remains available for failure diagnostics. Because stdout and stderr are separate pipes, ordering is best-effort at the parent receive boundary.
+Each warning that actually fires is also shown chronologically in that child's expanded Output section (including each expanded parallel child), with warning styling at 50/75% and error styling at 90/100%. Warnings are omitted from collapsed rows and aggregate summaries. The child sends these diagnostics over stderr using a versioned JSON marker; valid marker lines are removed from displayed stderr, while ordinary, malformed, and partial stderr remains available for failure diagnostics. Because stdout and stderr are separate pipes, ordering is best-effort at the parent receive boundary.
 
-Child-specific footers show current context as `26.0k/120k`, colored by context pressure (normal through 50%, warning above 50%, error above 80%). This is a current-context reading, not cumulative token billing, and is not capped at 100%. Parallel and chain aggregate summaries intentionally continue to show their existing summed context without `/limit`.
+Child-specific footers show current context as `26.0k/120k`, colored by context pressure (normal through 50%, warning above 50%, error above 80%). This is a current-context reading, not cumulative token billing, and is not capped at 100%. Parallel aggregate summaries intentionally continue to show summed context without `/limit`.
 
 The parent receives context usage from completed child JSON `message_end` usage records, so live updates can lag until a child completes a model response; it does not claim a separate exact live reading.
 

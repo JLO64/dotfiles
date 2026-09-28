@@ -43,22 +43,6 @@ describe("subagent footer context rendering", () => {
 });
 
 describe("aggregate subagent footers", () => {
-	test("sums chain context while retaining summed duration and turns", () => {
-		const summary = aggregateSummary(
-			[
-				result(),
-				result({
-					durationMs: 120_000,
-					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 16_000, turns: 2 },
-				}),
-			],
-			"chain",
-			theme,
-		);
-
-		expect(summary).toBe("openai-codex/gpt-5.6-luna(High, 26.0k, 3 turns) in  /repo for 󰥔 3 minutes");
-	});
-
 	test("sums parallel context while retaining maximum duration and turns", () => {
 		const summary = aggregateSummary(
 			[
@@ -84,7 +68,6 @@ describe("aggregate subagent footers", () => {
 			}),
 		];
 
-		expect(aggregateSummary(results, "chain", theme)).toBe("2 tasks (26.0k, 3 turns, 2 minutes)");
 		expect(aggregateSummary(results, "parallel", theme)).toBe("2 tasks (26.0k, 3 turns, 1 minute)");
 		expect(aggregateSummary(results, "parallel", theme)).not.toContain("/");
 	});
