@@ -136,6 +136,7 @@ const BRACKETED_PASTE_END_TAIL = BRACKETED_PASTE_END.slice(1);
 const MAX_COUNT = 9999;
 const SHELL_COLOR_START = "\x1b[38;2;62;143;176m";
 const STREAMING_COLOR_START = "\x1b[38;2;235;188;186m";
+const FLASH_COLOR_START = "\x1b[38;2;246;193;119m";
 const FOREGROUND_RESET = "\x1b[39m";
 const GHOST_STYLE_START = "\x1b[2;38;5;245m";
 const STYLE_RESET = "\x1b[0m";
@@ -146,6 +147,10 @@ const CURSOR_SHAPE_DEFAULT = "\x1b[0 q";
 
 function shellColorize(text: string): string {
   return `${SHELL_COLOR_START}${text}${FOREGROUND_RESET}`;
+}
+
+function flashColorize(text: string): string {
+  return `${FLASH_COLOR_START}${text}${FOREGROUND_RESET}`;
 }
 
 type EditorSnapshot = {
@@ -2886,7 +2891,9 @@ export class ModalEditor extends CustomEditor {
       return;
     }
 
-    const match = this.flashState.matches.find((m) => m.label === data);
+    const match = this.flashState.matches.find(
+      (m) => m.label === data.toLowerCase(),
+    );
     if (match) {
       this.jumpToFlashMatch(match);
       return;
@@ -2907,13 +2914,18 @@ export class ModalEditor extends CustomEditor {
     if (pattern.length === 0) {
       this.flashState.matches = [];
     } else {
-      this.flashState.matches = this.assignFlashLabels(this.findFlashMatches(pattern));
+      const matches = this.findFlashMatches(pattern);
+      if (matches.length === 1) {
+        this.jumpToFlashMatch({ ...matches[0]!, label: "" });
+        return;
+      }
+      this.flashState.matches = this.assignFlashLabels(matches, pattern);
     }
     const editor = this as unknown as { tui?: { requestRender?: () => void } };
     editor.tui?.requestRender?.();
   }
 
-  private readonly FLASH_LABELS = "asdfghjklqwertyuiopzxcvbnm";
+  private readonly FLASH_LABELS = "abcdefghijklmnopqrstuvwxyz";
 
   private findFlashMatches(pattern: string): Array<{ line: number; col: number }> {
     const lines = this.getLines();
@@ -2922,7 +2934,7 @@ export class ModalEditor extends CustomEditor {
       const line = lines[lineIndex] ?? "";
       let col = 0;
       while (col <= line.length - pattern.length) {
-        if (line.slice(col, col + pattern.length) === pattern) {
+        if (line.slice(col, col + pattern.length).toLowerCase() === pattern.toLowerCase()) {
           matches.push({ line: lineIndex, col });
           col += Math.max(1, pattern.length);
         } else {
@@ -2951,8 +2963,16 @@ export class ModalEditor extends CustomEditor {
 
   private assignFlashLabels(
     matches: Array<{ line: number; col: number }>,
+    pattern: string,
   ): FlashMatch[] {
-    const labels = this.FLASH_LABELS;
+    const lines = this.getLines();
+    const unavailable = new Set<string>();
+    for (const match of matches) {
+      const nextCharacter = lines[match.line]?.[match.col + pattern.length];
+      if (nextCharacter) unavailable.add(nextCharacter.toLowerCase());
+    }
+
+    const labels = [...this.FLASH_LABELS].filter((label) => !unavailable.has(label));
     return matches.slice(0, labels.length).map((m, i) => ({
       ...m,
       label: labels[i]!,
@@ -3304,7 +3324,7 @@ export class ModalEditor extends CustomEditor {
     const result = [...baseLines];
 
     const LABEL_FG = "\x1b[30m"; // black
-    const LABEL_BG = "\x1b[43m"; // yellow bg
+    const LABEL_BG = "\x1b[48;2;246;193;119m"; // Rose Pine Gold (#f6c177)
     const RESET = "\x1b[0m";
 
     for (const match of this.flashState.matches) {
@@ -3333,7 +3353,7 @@ export class ModalEditor extends CustomEditor {
       const split = this.splitRenderedContentAtVisibleColumn(content, visibleCol);
       if (!split) continue;
 
-      const label = `${RESET}${LABEL_FG}${LABEL_BG}${match.label}${RESET}${split.restore}`;
+      const label = `${RESET}${LABEL_FG}${LABEL_BG}\x1b[1m${match.label}\x1b[22m${RESET}${split.restore}`;
       const newContent = split.before + label + split.after;
       const newWidth = visibleWidth(content) - split.atWidth + visibleWidth(match.label);
       const newPadding = Math.max(0, contentWidth - newWidth);
@@ -3608,6 +3628,7 @@ export class ModalEditor extends CustomEditor {
   }
 
   private getModeColorizer(colorizers: ModeColorizers | null): (s: string) => string {
+    if (this.flashState) return flashColorize;
     if (this.isShellInput()) return shellColorize;
     if (!colorizers) return (s: string) => s;
     if (this.mode === "insert") return colorizers.insert;

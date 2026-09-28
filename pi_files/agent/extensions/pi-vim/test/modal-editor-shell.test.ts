@@ -82,7 +82,34 @@ describe("pi-vim shell UI", () => {
 
     expect(rendered).toContain("FLASH /");
     expect(rendered).not.toContain("SHELL");
-    expect(rendered).toContain(`${SHELL_RGB}╭`);
+    expect(rendered).toContain("\x1b[38;2;246;193;119m");
+  });
+
+  test("jumps immediately to a unique case-insensitive Flash match", () => {
+    const editor = makeEditor();
+    editor.setText("one CAT car");
+    editor.handleInput("\x1b");
+    editor.handleInput("s");
+    editor.handleInput("c");
+    editor.handleInput("a");
+    editor.handleInput("t");
+
+    expect(editor.getCursor()).toEqual({ line: 0, col: 4 });
+    expect(editor.render(50).join("\n")).not.toContain("FLASH /");
+  });
+
+  test("uses alphabetical labels while skipping letters after the query", () => {
+    const editor = makeEditor();
+    editor.setText("XA xb XC");
+    editor.handleInput("\x1b");
+    editor.handleInput("s");
+    editor.handleInput("x");
+    const rendered = editor.render(50).join("\n");
+    expect(rendered).toContain("\x1b[48;2;246;193;119m");
+    expect(rendered).toContain("\x1b[30m\x1b[48;2;246;193;119m\x1b[1md\x1b[22m");
+    editor.handleInput("f");
+
+    expect(editor.getCursor()).toEqual({ line: 0, col: 6 });
   });
 
   test("does not activate shell UI for leading whitespace", () => {
