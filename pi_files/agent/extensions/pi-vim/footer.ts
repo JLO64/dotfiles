@@ -484,7 +484,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 					// Elapsed time since last completion
 					let elapsedStr = "";
 					if (streamingState.isStreaming) {
-						elapsedStr = "(...)";
+						elapsedStr = "(…)";
 					} else if (timerState.hasResponded) {
 						const elapsedMs = Date.now() - timerState.lastCompletionTime;
 						const elapsedSec = Math.ceil(Math.floor(elapsedMs / 1000) / 5) * 5;
