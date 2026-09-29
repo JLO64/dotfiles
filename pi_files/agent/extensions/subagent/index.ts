@@ -594,7 +594,7 @@ export function formatSectionHeader(
 	theme: DisplayTheme,
 	borderColorize: (text: string) => string,
 ): string {
-	return `\u0000${borderColorize("─")}${borderColorize("")}${theme.bold(borderColorize(title))}${borderColorize("")}`;
+	return `\u0000${borderColorize("─")}${borderColorize("")}${theme.inverse(theme.bold(borderColorize(title)))}${borderColorize("")}`;
 }
 
 function addSectionHeader(
