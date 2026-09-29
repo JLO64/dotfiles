@@ -1,18 +1,19 @@
 {
-  "lastChangelogVersion": "0.80.6",
+  "lastChangelogVersion": "0.99.1",
   "quietStartup": true,
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-luna",
+  "defaultModel": "gpt-6.1-sol",
   "enabledModels": [
-    "openai-codex/gpt-6-luna",
-    "openai-codex/gpt-6-sol"
+    "openai-codex/gpt-6.1-sol",
+    "openai-codex/gpt-6-luna"
   ],
   "packages": [],
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "low",
   "theme": "rose-pine-moon",
   "shellCommandPrefix": "source ~/.env",
   "compaction": {
     "enabled": false
   },
-  "defaultProjectTrust": "always"
+  "defaultProjectTrust": "always",
+  "hideThinkingBlock": false
 }
