@@ -28,7 +28,7 @@ import {
 import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, resolveRestrictedAgent } from "./agents.ts";
-import { createPrivateSession, getPrivateSession, getPrivateSessionState, privateSessionDir, setPrivateSessionState, withPrivateSessionLock } from "./session-store.ts";
+import { createPrivateSession, getPrivateSession, getPrivateSessionState, privateSessionDir, setPrivateSessionState, updatePrivateSessionContext, withPrivateSessionLock } from "./session-store.ts";
 import { buildAgentResourceArgs } from "./resource-config.ts";
 import { resolveAgentModel } from "./model-config.ts";
 import {
@@ -47,7 +47,9 @@ import {
 	resolveContextTokenLimit,
 } from "./context-limits.ts";
 import {
+	CONTEXT_MEASUREMENT_PROTOCOL_PREFIX,
 	CONTEXT_WARNING_PROTOCOL_PREFIX,
+	type ContextMeasurementProtocolPayload,
 	type ContextWarningProtocolPayload,
 } from "./context-limiter.ts";
 
@@ -273,6 +275,7 @@ interface SingleResult {
 	step?: number;
 	contextTokenLimit: number;
 	contextWarnings: ContextWarningDiagnostic[];
+	contextMeasurement?: { tokens: number; measuredAt: number };
 	activity: DisplayItem[];
 	sessionHandle?: string;
 }
@@ -336,6 +339,15 @@ function getResultOutput(result: SingleResult): string {
 		return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
 	}
 	return getFinalOutput(result.messages) || "(no output)";
+}
+
+function contextMeasurementReport(result: SingleResult): string {
+	const measurement = result.contextMeasurement;
+	if (!measurement) return `Context occupancy: unknown (no exact pre-request measurement received); soft limit ${result.contextTokenLimit} tokens.`;
+	const ageMs = Math.max(0, Date.now() - measurement.measuredAt);
+	const status = ageMs > 24 * 60 * 60 * 1000 ? "stale" : "current";
+	const percent = (measurement.tokens / result.contextTokenLimit) * 100;
+	return `Context occupancy: ${status}, ${measurement.tokens} tokens (${percent.toFixed(1)}% of ${result.contextTokenLimit}); measured ${Math.floor(ageMs / 1000)}s ago.`;
 }
 
 function markdownCodeBlock(value: string): string {
@@ -554,6 +566,21 @@ function getDisplayItems(messages: Message[]): DisplayItem[] {
 	return items;
 }
 
+export function parseContextMeasurementProtocolLine(line: string): ContextMeasurementProtocolPayload | undefined {
+	if (!line.startsWith(CONTEXT_MEASUREMENT_PROTOCOL_PREFIX)) return undefined;
+	try {
+		const payload: unknown = JSON.parse(line.slice(CONTEXT_MEASUREMENT_PROTOCOL_PREFIX.length));
+		if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+		const value = payload as Partial<ContextMeasurementProtocolPayload>;
+		if (value.v !== 1 || value.type !== "context_measurement" ||
+			typeof value.tokens !== "number" || !Number.isSafeInteger(value.tokens) || value.tokens < 0 ||
+			typeof value.measuredAt !== "number" || !Number.isSafeInteger(value.measuredAt) || value.measuredAt < 0) return undefined;
+		return value as ContextMeasurementProtocolPayload;
+	} catch {
+		return undefined;
+	}
+}
+
 export function parseContextWarningProtocolLine(line: string): ContextWarningDiagnostic | undefined {
 	if (!line.startsWith(CONTEXT_WARNING_PROTOCOL_PREFIX)) return undefined;
 	try {
@@ -693,6 +720,21 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
 	return { dir: tmpDir, filePath };
 }
 
+export function buildSubagentEnvironment(
+	parentEnvironment: NodeJS.ProcessEnv,
+	contextTokenLimit: number,
+	previousContextTokenLimit?: number,
+): NodeJS.ProcessEnv {
+	const env = { ...parentEnvironment, PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: String(contextTokenLimit) };
+	delete env.PI_SUBAGENT_RESUME_NOTICE;
+	delete env.PI_SUBAGENT_PREVIOUS_CONTEXT_TOKEN_LIMIT;
+	if (previousContextTokenLimit !== undefined) {
+		env.PI_SUBAGENT_RESUME_NOTICE = "1";
+		env.PI_SUBAGENT_PREVIOUS_CONTEXT_TOKEN_LIMIT = String(previousContextTokenLimit);
+	}
+	return env;
+}
+
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -747,6 +789,7 @@ async function runSingleAgent(
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 	privateSession?: Awaited<ReturnType<typeof createPrivateSession>>,
 	agentScope: AgentScope = "user",
+	previousContextTokenLimit?: number,
 ): Promise<SingleResult> {
 	if (!agent) {
 		return {
@@ -809,6 +852,7 @@ async function runSingleAgent(
 		step,
 		contextTokenLimit,
 		contextWarnings: [],
+		contextMeasurement: privateSession?.lastContextMeasurement,
 		activity: [],
 		sessionHandle: session.handle,
 	};
@@ -844,6 +888,7 @@ async function runSingleAgent(
 
 		const gitBranch = captureGitBranch(childCwd);
 		const startedAt = Date.now();
+		let pendingContextWrite = Promise.resolve();
 		await setPrivateSessionState(session.handle, "active");
 		const exitCode = await new Promise<number>((resolve) => {
 			const invocation = getPiInvocation(args);
@@ -851,7 +896,7 @@ async function runSingleAgent(
 				cwd: childCwd,
 				shell: false,
 				stdio: ["pipe", "pipe", "pipe"],
-				env: { ...process.env, PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: String(contextTokenLimit) },
+				env: buildSubagentEnvironment(process.env, contextTokenLimit, previousContextTokenLimit),
 			});
 			let buffer = "";
 			let stderrBuffer = "";
@@ -967,6 +1012,15 @@ async function runSingleAgent(
 			});
 
 			const processStderrLine = (line: string) => {
+				const measurement = parseContextMeasurementProtocolLine(line);
+				if (measurement) {
+					currentResult.contextMeasurement = { tokens: measurement.tokens, measuredAt: measurement.measuredAt };
+					pendingContextWrite = pendingContextWrite.then(() =>
+						updatePrivateSessionContext(session.handle, contextTokenLimit, currentResult.contextMeasurement),
+					).catch(() => {});
+					emitUpdate();
+					return;
+				}
 				const warning = parseContextWarningProtocolLine(line);
 				if (warning) {
 					if (!currentResult.contextWarnings.some((existing) => existing.threshold === warning.threshold)) {
@@ -1019,6 +1073,7 @@ async function runSingleAgent(
 		});
 
 		currentResult.exitCode = exitCode;
+		await pendingContextWrite;
 		await setPrivateSessionState(session.handle, wasAborted || exitCode !== 0 ? "uncertain" : "ready");
 		currentResult.durationMs = Date.now() - startedAt;
 		currentResult.gitBranch = await gitBranch;
@@ -1149,7 +1204,17 @@ export default function (pi: ExtensionAPI) {
 					return errorResult("The subagent profile for this session is no longer available or has changed.");
 				}
 				const result = await withPrivateSessionLock(saved.handle, async () => {
-					const danglingCalls = await findDanglingPersistedToolCalls(saved.handle);
+					const lockedSaved = await getPrivateSession(saved.handle);
+					if (!lockedSaved) {
+						return {
+							agent: saved.agent, agentSource: saved.agentSource, task: continuationPrompt, exitCode: 1,
+							messages: [], stderr: "Private subagent session metadata became unavailable while waiting for its lock.",
+							usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+							contextTokenLimit: resolveContextTokenLimit(params.contextTokenLimit, saved.contextTokenLimit),
+							contextWarnings: [], activity: [], sessionHandle: saved.handle,
+						};
+					}
+					const danglingCalls = await findDanglingPersistedToolCalls(lockedSaved.handle);
 					if (!danglingCalls || danglingCalls.length > 0) {
 						return {
 							agent: saved.agent, agentSource: saved.agentSource, task: continuationPrompt, exitCode: 1,
@@ -1157,22 +1222,25 @@ export default function (pi: ExtensionAPI) {
 								? "Cannot verify persisted tool-call completion because the session transcript could not be read. Inspect the session and workspace before continuing."
 								: `Cannot continue automatically: persisted tool call(s) have no result: ${danglingCalls.join(", ")}. Inspect the session and workspace; no tool was replayed.`,
 							usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-							contextTokenLimit: saved.contextTokenLimit, contextWarnings: [], activity: [], sessionHandle: saved.handle,
+							contextTokenLimit: resolveContextTokenLimit(params.contextTokenLimit, lockedSaved.contextTokenLimit),
+							contextMeasurement: lockedSaved.lastContextMeasurement, contextWarnings: [], activity: [], sessionHandle: lockedSaved.handle,
 						};
 					}
 					const priorState = await getPrivateSessionState(saved.handle);
+					const effectiveLimit = resolveContextTokenLimit(params.contextTokenLimit, lockedSaved.contextTokenLimit);
+					await updatePrivateSessionContext(lockedSaved.handle, effectiveLimit);
 					const continueTask = priorState === "ready"
 						? continuationPrompt
 						: `WARNING: The preceding operation may have been interrupted or left tool execution incomplete. Review the persisted conversation and inspect the workspace for uncertain effects; do not assume prior tools completed or replay them automatically.\n\nContinuation request:\n${continuationPrompt}`;
 					return runSingleAgent(
-						saved.cwd, sessionAgent, saved.agent, continueTask, saved.cwd, undefined,
-						saved.contextTokenLimit, signal, onUpdate, makeDetails("single"), saved, saved.agentScope,
+						lockedSaved.cwd, sessionAgent, lockedSaved.agent, continueTask, lockedSaved.cwd, undefined,
+						effectiveLimit, signal, onUpdate, makeDetails("single"), lockedSaved, lockedSaved.agentScope, lockedSaved.contextTokenLimit,
 					);
 				});
 				const failed = isFailedResult(result);
 				const output = getResultOutput(result);
 				return {
-					content: [{ type: "text", text: `${output}\n\nSession handle: ${saved.handle}` }],
+					content: [{ type: "text", text: `${output}\n\n${contextMeasurementReport(result)}\nSession handle: ${saved.handle}` }],
 					details: makeDetails("single")([result]),
 					...(failed ? { isError: true } : {}),
 				};
@@ -1274,7 +1342,7 @@ export default function (pi: ExtensionAPI) {
 							? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
 							: "completed";
 						const reportNote = failed ? `\n\n${await failureReportNote(r, getResultOutput(r))}` : "";
-						return `### [${r.agent}] ${status}\n\n${output}\n\nSession handle: ${r.sessionHandle}${reportNote}`;
+						return `### [${r.agent}] ${status}\n\n${output}\n\n${contextMeasurementReport(r)}\nSession handle: ${r.sessionHandle}${reportNote}`;
 					}),
 				);
 				return {
@@ -1308,13 +1376,13 @@ export default function (pi: ExtensionAPI) {
 					const errorMsg = getResultOutput(result);
 					const reportNote = await failureReportNote(result, errorMsg);
 					return {
-						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}\n\nSession handle: ${result.sessionHandle}\n${reportNote}` }],
+						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}\n\n${contextMeasurementReport(result)}\nSession handle: ${result.sessionHandle}\n${reportNote}` }],
 						details: makeDetails("single")([result]),
 						isError: true,
 					};
 				}
 				return {
-					content: [{ type: "text", text: `${getFinalOutput(result.messages) || "(no output)"}\n\nSession handle: ${result.sessionHandle}` }],
+					content: [{ type: "text", text: `${getFinalOutput(result.messages) || "(no output)"}\n\n${contextMeasurementReport(result)}\nSession handle: ${result.sessionHandle}` }],
 					details: makeDetails("single")([result]),
 				};
 			}

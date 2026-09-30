@@ -58,11 +58,15 @@ Always specify a language on fenced code blocks; never use a bare fence. Show pr
 
 Delegate work that benefits from isolated context.
 
-Do not set a subagent invocation's `contextTokenLimit` argument unless the user explicitly instructs you to do so.
+Do not set a fresh subagent invocation's `contextTokenLimit` argument unless the user explicitly instructs you to do so. For continuations, follow the guidance below.
 
 Do not delegate the creation or editing of project plans or internal documentation Markdown files; handle those changes directly as the main agent.
 
 ### Continuing subagents
+
+Check the automatically returned context statistics before reprompting. Do not reprompt an agent whose reported context occupancy is 180,000 tokens or more; explain the limitation and use a fresh agent with a concise handoff instead. Treat unknown or stale measurements cautiously rather than assuming the agent has ample capacity.
+
+When continuing an agent below that threshold, pass `contextTokenLimit: 200000` to give the continuation room to finish. This is recommended guidance, not an enforced limit or a change to the extension's default. The override persists for later continuations, and the extension automatically informs the resumed agent of its effective limit and current occupancy.
 
 Keep the session handle returned by a subagent call, including when it is stopped or fails. To prompt that same subagent again, call `subagent` with `continueHandle` set to its handle and `task` set to a new instruction. This works after completion as well as after an interrupted run; do not start a fresh agent when the user asks to resume a specific one.
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { CONTEXT_WARNING_PROTOCOL_PREFIX, formatContextWarningProtocol } from "../context-limiter.ts";
-import { aggregateSummary, formatFailureReport, parseContextWarningProtocolLine, resultDisplayItems } from "../index.ts";
+import { CONTEXT_MEASUREMENT_PROTOCOL_PREFIX, CONTEXT_WARNING_PROTOCOL_PREFIX, formatContextMeasurementProtocol, formatContextWarningProtocol } from "../context-limiter.ts";
+import { aggregateSummary, buildSubagentEnvironment, formatFailureReport, parseContextMeasurementProtocolLine, parseContextWarningProtocolLine, resultDisplayItems } from "../index.ts";
 
 const warning = {
 	v: 1 as const,
@@ -13,6 +13,32 @@ const warning = {
 };
 
 describe("subagent context warning protocol", () => {
+	test("clears inherited continuation flags for fresh children", () => {
+		const inherited = {
+			PI_SUBAGENT_RESUME_NOTICE: "1",
+			PI_SUBAGENT_PREVIOUS_CONTEXT_TOKEN_LIMIT: "90000",
+			OTHER_SETTING: "retained",
+		};
+		assert.deepEqual(buildSubagentEnvironment(inherited, 70_000), {
+			PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: "70000",
+			OTHER_SETTING: "retained",
+		});
+		assert.deepEqual(buildSubagentEnvironment({}, 70_000, 90_000), {
+			PI_SUBAGENT_CONTEXT_TOKEN_LIMIT: "70000",
+			PI_SUBAGENT_RESUME_NOTICE: "1",
+			PI_SUBAGENT_PREVIOUS_CONTEXT_TOKEN_LIMIT: "90000",
+		});
+	});
+
+	test("parses exact pre-request measurements and rejects malformed or invalid records", () => {
+		const measurement = { v: 1 as const, type: "context_measurement" as const, tokens: 42_000, measuredAt: 1_700_000_000_000 };
+		const line = formatContextMeasurementProtocol(measurement);
+		assert.deepEqual(parseContextMeasurementProtocolLine(line), measurement);
+		assert.equal(parseContextMeasurementProtocolLine(`${CONTEXT_MEASUREMENT_PROTOCOL_PREFIX}{bad json`), undefined);
+		assert.equal(parseContextMeasurementProtocolLine(`${CONTEXT_MEASUREMENT_PROTOCOL_PREFIX}${JSON.stringify({ ...measurement, tokens: -1 })}`), undefined);
+		assert.equal(parseContextMeasurementProtocolLine("ordinary stderr"), undefined);
+	});
+
 	test("accepts only complete, valid versioned payloads", () => {
 		const line = formatContextWarningProtocol(warning);
 		assert.deepEqual(parseContextWarningProtocolLine(line), {

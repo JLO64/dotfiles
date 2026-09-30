@@ -13,6 +13,7 @@ export interface PrivateSubagentSession {
 	cwd: string;
 	agentScope: "user" | "project" | "both";
 	contextTokenLimit: number;
+	lastContextMeasurement?: { tokens: number; measuredAt: number };
 }
 
 const HANDLE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -54,10 +55,31 @@ export async function getPrivateSession(handle: string): Promise<PrivateSubagent
 			typeof record.cwd !== "string" || typeof record.contextTokenLimit !== "number" ||
 			(record.agentSource !== "user" && record.agentSource !== "project") ||
 			(record.agentScope !== "user" && record.agentScope !== "project" && record.agentScope !== "both")) return undefined;
+		const measurement = (record as any).lastContextMeasurement;
+		if (measurement !== undefined && (!measurement || !Number.isSafeInteger(measurement.tokens) || measurement.tokens < 0 ||
+			!Number.isSafeInteger(measurement.measuredAt) || measurement.measuredAt < 0)) return undefined;
 		return record as PrivateSubagentSession;
 	} catch {
 		return undefined;
 	}
+}
+
+export async function updatePrivateSessionContext(
+	handle: string,
+	contextTokenLimit: number,
+	measurement?: { tokens: number; measuredAt: number },
+): Promise<void> {
+	const file = path.join(privateSessionDir(handle), "owner.json");
+	const session = await getPrivateSession(handle);
+	if (!session) throw new Error("Cannot update invalid private subagent session");
+	const updated: PrivateSubagentSession = {
+		...session,
+		contextTokenLimit,
+		...(measurement ? { lastContextMeasurement: measurement } : {}),
+	};
+	const temp = `${file}.${randomUUID()}.tmp`;
+	await fs.writeFile(temp, JSON.stringify(updated), { encoding: "utf8", mode: 0o600, flag: "wx" });
+	await fs.rename(temp, file);
 }
 
 export async function getPrivateSessionState(handle: string): Promise<PrivateSessionState> {
