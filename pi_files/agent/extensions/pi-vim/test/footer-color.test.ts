@@ -14,6 +14,7 @@ afterEach(() => {
 function createFooter(contextPercent: number) {
   const handlers: Record<string, (...args: any[]) => any> = {};
   const themeCalls: string[] = [];
+  let branchReads = 0;
   let widgetFactory: ((tui: any, theme: any) => any) | undefined;
   const pi = {
     on: (event: string, handler: (...args: any[]) => any) => { handlers[event] = handler; },
@@ -24,7 +25,7 @@ function createFooter(contextPercent: number) {
     model: { provider: "test", id: "test/model" },
     sessionManager: {
       getCwd: () => process.cwd(),
-      getBranch: () => [],
+      getBranch: () => { branchReads++; return []; },
     },
     getContextUsage: () => ({ percent: contextPercent, tokens: 1000 }),
     ui: {
@@ -45,10 +46,25 @@ function createFooter(contextPercent: number) {
     widget.dispose();
     handlers.session_shutdown?.({}, ctx);
   };
-  return { widget, themeCalls };
+  return { widget, themeCalls, handlers, getBranchReads: () => branchReads };
 }
 
 describe("footer detail colors", () => {
+  test("refreshes session totals on message completion, not render", () => {
+    const { widget, handlers, getBranchReads } = createFooter(10);
+    const readsAfterStart = getBranchReads();
+    widget.render(180);
+    widget.render(180);
+    expect(getBranchReads()).toBe(readsAfterStart);
+
+    handlers.message_end({ message: {
+      role: "assistant",
+      usage: { input: 10, output: 5, cost: { total: 0.12 } },
+    } });
+    expect(getBranchReads()).toBe(readsAfterStart + 1);
+    expect(stripAnsi(widget.render(180).join("\\n"))).toContain("$0.12");
+    expect(getBranchReads()).toBe(readsAfterStart + 1);
+  });
   test("accent details use the current border color across mode changes", () => {
     const { widget, themeCalls } = createFooter(90);
     const borderOne = (text: string) => `\x1b[38;5;2m${text}\x1b[39m`;

@@ -293,6 +293,17 @@ export default function registerFooter(pi: ExtensionAPI) {
 		refreshStreamingTimer: () => {},
 	};
 	let refreshChatGPTPlusPercent: () => void = () => {};
+	let sessionTotals = { input: 0, output: 0, cost: 0 };
+	let refreshSessionTotals: (message?: AssistantMessage) => void = () => {};
+
+	// Hostname is static for this extension runtime; resolve it outside render().
+	let hostname = "unknown";
+	try {
+		hostname = execSync("hostname -s", { encoding: "utf-8", timeout: 1000 }).trim();
+	} catch {
+		hostname = "unknown";
+	}
+	if (/macbook/i.test(hostname)) hostname = "MBP";
 
 	pi.on("agent_start", async () => {
 		streamingState.isStreaming = true;
@@ -314,6 +325,21 @@ export default function registerFooter(pi: ExtensionAPI) {
 		streamingState.streamedChars = 0;
 	});
 
+	pi.on("message_end", async (event) => {
+		if (event.message.role === "assistant") {
+			// message_end runs before the finalized message is persisted to the branch.
+			refreshSessionTotals(event.message as AssistantMessage);
+		}
+	});
+
+	pi.on("session_tree", async () => {
+		refreshSessionTotals();
+	});
+
+	pi.on("session_compact", async () => {
+		refreshSessionTotals();
+	});
+
 	pi.on("message_update", async (event) => {
 		if (event.assistantMessageEvent?.type === "text_delta" || event.assistantMessageEvent?.type === "thinking_delta") {
 			streamingState.streamedChars += event.assistantMessageEvent.delta.length;
@@ -323,6 +349,28 @@ export default function registerFooter(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
+
+		refreshSessionTotals = (pendingMessage) => {
+			let totalInput = 0;
+			let totalOutput = 0;
+			let totalCost = 0;
+			for (const entry of ctx.sessionManager.getBranch()) {
+				if (entry.type === "message" && entry.message.role === "assistant") {
+					const message = entry.message as AssistantMessage;
+					totalInput += message.usage.input;
+					totalOutput += message.usage.output;
+					totalCost += message.usage.cost?.total ?? 0;
+				}
+			}
+			if (pendingMessage) {
+				totalInput += pendingMessage.usage.input;
+				totalOutput += pendingMessage.usage.output;
+				totalCost += pendingMessage.usage.cost?.total ?? 0;
+			}
+			sessionTotals = { input: totalInput, output: totalOutput, cost: totalCost };
+			timerState.requestRender();
+		};
+		refreshSessionTotals();
 
 		ctx.ui.setWidget("custom-footer", (tui, theme) => {
 			// Reset timer state for this session
@@ -431,18 +479,8 @@ export default function registerFooter(pi: ExtensionAPI) {
 						? basename(cwd)
 						: truncateDisplayPath(cwd, home);
 
-					// Token stats and cost (cumulative across the active branch only)
-					let totalInput = 0;
-					let totalOutput = 0;
-					let totalCost = 0;
-					for (const entry of ctx.sessionManager.getBranch()) {
-						if (entry.type === "message" && entry.message.role === "assistant") {
-							const m = entry.message as AssistantMessage;
-							totalInput += m.usage.input;
-							totalOutput += m.usage.output;
-							totalCost += m.usage.cost?.total ?? 0;
-						}
-					}
+					// Token stats and cost are refreshed on branch/message lifecycle events.
+					const { input: totalInput, output: totalOutput, cost: totalCost } = sessionTotals;
 
 					// Streaming cost estimation
 					let streamingCost = 0;
@@ -564,18 +602,6 @@ export default function registerFooter(pi: ExtensionAPI) {
 					let stats =
 						statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
 
-					// Hostname (short, like `hostname -s`)
-					let hostname = "unknown";
-					try {
-						hostname = execSync("hostname -s", {
-							encoding: "utf-8",
-							timeout: 1000,
-						}).trim();
-					} catch {
-						hostname = "unknown";
-					}
-					if (/macbook/i.test(hostname)) hostname = "MBP";
-
 					// Directory
 					let dirPart =
 						borderColorize(" ") +
@@ -671,6 +697,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 		clearFooterLayout();
 		timerState.requestRender = () => {};
 		timerState.refreshStreamingTimer = () => {};
+		refreshSessionTotals = () => {};
 		refreshChatGPTPlusPercent = () => {};
 	});
 }
