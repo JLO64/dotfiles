@@ -65,6 +65,7 @@ const STREAMING_COLOR_START = "\x1b[38;2;235;188;186m";
 const STREAMING_ICONS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const STREAMING_FRAME_INTERVAL_MS = 100;
 const FOREGROUND_RESET = "\x1b[39m";
+const NESTED_SUBAGENT_PROTOCOL_PREFIX = "PI_SUBAGENT_ACTIVITY:";
 
 function colorize(colorStart: string, text: string): string {
 	return `${colorStart}${text}${FOREGROUND_RESET}`;
@@ -164,7 +165,7 @@ function formatUsageStats(
 
 type ToolCallStatus = "running" | "success" | "error" | "unresolved";
 
-function formatToolCall(
+export function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
 	themeFg: (color: any, text: string) => string,
@@ -219,6 +220,14 @@ function formatToolCall(
 			const rawPath = (args.path || ".") as string;
 			return themeFg("text", "find ") + themeFg("accent", pattern) + themeFg("accent", ` in ${shortenPath(rawPath)}`);
 		}
+		case "web_search": {
+			const query = typeof args.query === "string" ? args.query : "";
+			return themeFg("text", "web_search ") + themeFg("accent", JSON.stringify(query));
+		}
+		case "web_fetch": {
+			const url = typeof args.url === "string" ? args.url : "";
+			return themeFg("text", "web_fetch ") + themeFg("accent", url);
+		}
 		case "grep": {
 			const pattern = (args.pattern || "") as string;
 			const rawPath = (args.path || ".") as string;
@@ -253,9 +262,12 @@ export interface ContextWarningDiagnostic {
 	message: string;
 }
 
+type NestedSubagentTask = { agent: string; task: string; resumed?: boolean; tools: DisplayItem[] };
+
 type DisplayItem =
 	| { type: "text"; text: string }
 	| { type: "toolCall"; id: string; name: string; args: Record<string, any>; status: ToolCallStatus }
+	| { type: "nestedSubagent"; callId: string; tasks: NestedSubagentTask[]; parallel: boolean }
 	| { type: "contextWarning"; warning: ContextWarningDiagnostic };
 
 interface SingleResult {
@@ -610,11 +622,95 @@ export function resultDisplayItems(result: SingleResult): DisplayItem[] {
 	];
 }
 
+function nestedTaskFromResult(result: SingleResult, resumed = false): NestedSubagentTask {
+	return {
+		agent: result.agent,
+		task: result.task,
+		...(resumed ? { resumed: true } : {}),
+		tools: resultDisplayItems(result).filter((item) => item.type === "toolCall" || item.type === "nestedSubagent"),
+	};
+}
+
+export function formatNestedSubagentActivity(
+	callId: string,
+	results: SingleResult[],
+	parallel: boolean,
+	resumed = false,
+): string {
+	const payload = { v: 1, callId, parallel, tasks: results.map((result) => nestedTaskFromResult(result, resumed)) };
+	return `${NESTED_SUBAGENT_PROTOCOL_PREFIX}${JSON.stringify(payload)}`;
+}
+
+function emitNestedSubagentActivity(callId: string, results: SingleResult[], parallel: boolean, resumed = false): void {
+	process.stderr.write(`${formatNestedSubagentActivity(callId, results, parallel, resumed)}\n`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNestedTask(value: unknown, depth: number): value is NestedSubagentTask {
+	if (depth > 16 || !isRecord(value) || typeof value.agent !== "string" || typeof value.task !== "string" ||
+		(value.resumed !== undefined && typeof value.resumed !== "boolean") || !Array.isArray(value.tools)) return false;
+	return value.tools.every((tool) => isNestedToolItem(tool, depth + 1));
+}
+
+function isJsonValue(value: unknown, depth: number): boolean {
+	if (depth > 16) return false;
+	if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+	if (typeof value === "number") return Number.isFinite(value);
+	if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
+	return isRecord(value) && Object.values(value).every((item) => isJsonValue(item, depth + 1));
+}
+
+function isValidNestedToolArgs(name: string, args: Record<string, unknown>): boolean {
+	if (!Object.values(args).every((value) => isJsonValue(value, 0))) return false;
+	const stringFields: Record<string, string[]> = {
+		bash: ["command"], read: ["file_path", "path"], write: ["file_path", "path", "content"],
+		edit: ["file_path", "path"], ls: ["path"], find: ["pattern", "path"], grep: ["pattern", "path"],
+		web_search: ["query"], web_fetch: ["url"],
+	};
+	if ((stringFields[name] ?? []).some((field) => args[field] !== undefined && typeof args[field] !== "string")) return false;
+	if (name === "read" && ["offset", "limit"].some((field) => args[field] !== undefined && typeof args[field] !== "number")) return false;
+	return true;
+}
+
+function isNestedToolItem(value: unknown, depth: number): value is Extract<DisplayItem, { type: "toolCall" | "nestedSubagent" }> {
+	if (depth > 16 || !isRecord(value)) return false;
+	if (value.type === "toolCall") {
+		return typeof value.id === "string" && typeof value.name === "string" && isRecord(value.args) && isValidNestedToolArgs(value.name, value.args) &&
+			(value.status === "running" || value.status === "success" || value.status === "error" || value.status === "unresolved");
+	}
+	if (value.type !== "nestedSubagent" || typeof value.callId !== "string" || typeof value.parallel !== "boolean" || !Array.isArray(value.tasks)) return false;
+	return value.tasks.length > 0 && (value.parallel || value.tasks.length === 1) && value.tasks.every((task) => isNestedTask(task, depth + 1));
+}
+
+export function parseNestedSubagentActivity(line: string): Extract<DisplayItem, { type: "nestedSubagent" }> | undefined {
+	if (!line.startsWith(NESTED_SUBAGENT_PROTOCOL_PREFIX)) return undefined;
+	try {
+		const value: unknown = JSON.parse(line.slice(NESTED_SUBAGENT_PROTOCOL_PREFIX.length));
+		if (!isRecord(value) || value.v !== 1 || typeof value.callId !== "string" || typeof value.parallel !== "boolean" || !Array.isArray(value.tasks)) return undefined;
+		if (value.tasks.length === 0 || (!value.parallel && value.tasks.length !== 1) || !value.tasks.every((task) => isNestedTask(task, 0))) return undefined;
+		return { type: "nestedSubagent", callId: value.callId, parallel: value.parallel, tasks: value.tasks as NestedSubagentTask[] };
+	} catch {
+		return undefined;
+	}
+}
+
+export function isNestedSubagentCallAlreadyRendered(toolCallId: string, items: DisplayItem[]): boolean {
+	return items.some((item) => item.type === "nestedSubagent" && item.callId === toolCallId);
+}
+
 type DisplayTheme = {
 	fg: (color: any, text: string) => string;
 	bold: (text: string) => string;
 	inverse: (text: string) => string;
 };
+
+export function formatNestedTaskLabel(task: NestedSubagentTask, parallel: boolean): string {
+	const summary = taskSummary(task.task);
+	return parallel ? `${task.agent}: ${summary}` : summary;
+}
 
 export function formatSectionHeader(
 	title: "Input" | "Tools" | "Output",
@@ -635,15 +731,30 @@ function addSectionHeader(
 
 function addToolDisplayItems(container: Container, items: DisplayItem[], theme: DisplayTheme): void {
 	const toolItems = items.filter(
-		(item): item is Extract<DisplayItem, { type: "toolCall" | "contextWarning" }> =>
-			item.type === "toolCall" || item.type === "contextWarning",
+		(item): item is Extract<DisplayItem, { type: "toolCall" | "contextWarning" | "nestedSubagent" }> =>
+			(item.type === "toolCall" && !(item.name === "subagent" && isNestedSubagentCallAlreadyRendered(item.id, items))) ||
+			item.type === "contextWarning" || item.type === "nestedSubagent",
 	);
 	if (toolItems.length === 0) {
 		container.addChild(new Text(theme.fg("muted", "(no tools)"), 1, 0));
 		return;
 	}
 	for (const item of toolItems) {
-		if (item.type === "contextWarning") {
+		if (item.type === "nestedSubagent") {
+			const label = item.parallel
+				? `parallel · ${item.tasks.length} tasks`
+				: `${item.tasks[0]?.agent ?? "subagent"}${item.tasks[0]?.resumed ? " (resumed)" : ""}`;
+			container.addChild(new Text(theme.fg("muted", "→ ") + theme.fg("text", `subagent ${label}`), 1, 0));
+			for (const task of item.tasks) {
+				const taskLabel = formatNestedTaskLabel(task, item.parallel);
+				container.addChild(new Text(theme.fg("muted", "  task: ") + theme.fg("accent", taskLabel), 1, 0));
+				container.addChild(new Text(theme.fg("muted", "  tools:"), 1, 0));
+				for (const child of task.tools) {
+					if (child.type === "toolCall") container.addChild(new Text(theme.fg("muted", "    → ") + formatToolCall(child.name, child.args, theme.fg.bind(theme), child.status), 1, 0));
+					else if (child.type === "nestedSubagent") addToolDisplayItems(container, [child], theme);
+				}
+			}
+		} else if (item.type === "contextWarning") {
 			const color = item.warning.threshold >= 90 ? "error" : "warning";
 			container.addChild(new Text(theme.fg(color, `⚠ ${item.warning.message}`), 1, 0));
 		} else {
@@ -1021,6 +1132,12 @@ async function runSingleAgent(
 					emitUpdate();
 					return;
 				}
+				const nestedActivity = parseNestedSubagentActivity(line);
+				if (nestedActivity) {
+					currentResult.activity.push(nestedActivity);
+					emitUpdate();
+					return;
+				}
 				const warning = parseContextWarningProtocolLine(line);
 				if (warning) {
 					if (!currentResult.contextWarnings.some((existing) => existing.threshold === warning.threshold)) {
@@ -1237,6 +1354,8 @@ export default function (pi: ExtensionAPI) {
 						effectiveLimit, signal, onUpdate, makeDetails("single"), lockedSaved, lockedSaved.agentScope, lockedSaved.contextTokenLimit,
 					);
 				});
+				result.task = continuationPrompt;
+				emitNestedSubagentActivity(_toolCallId, [result], false, true);
 				const failed = isFailedResult(result);
 				const output = getResultOutput(result);
 				return {
@@ -1333,6 +1452,7 @@ export default function (pi: ExtensionAPI) {
 					return result;
 				});
 
+				emitNestedSubagentActivity(_toolCallId, results, true);
 				const successCount = results.filter((r) => !isFailedResult(r)).length;
 				const summaries = await Promise.all(
 					results.map(async (r) => {
@@ -1371,6 +1491,7 @@ export default function (pi: ExtensionAPI) {
 					makeDetails("single"),
 					agentScope,
 				);
+				emitNestedSubagentActivity(_toolCallId, [result], false);
 				const isError = isFailedResult(result);
 				if (isError) {
 					const errorMsg = getResultOutput(result);
