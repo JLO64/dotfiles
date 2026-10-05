@@ -172,7 +172,7 @@ export function getMarkdownHighlightSpans(lines: readonly string[]): MarkdownHig
 
     markMatches(line, /~~(?=\S)(?:.*?\S)~~/g, target, "strikethrough", 50);
     markMatches(line, /\*\*(?=\S)(?:.*?\S)\*\*|__(?=\S)(?:.*?\S)__/g, target, "bold", 60);
-    markMatches(line, /(?<!\*)\*(?=\S)(?:.*?\S)\*(?!\*)|(?<!_)_(?=\S)(?:.*?\S)_(?!_)/g, target, "italic", 52);
+    markMatches(line, /(?<!\*)\*(?=\S)(?:.*?\S)\*(?!\*)|(?<![\p{L}\p{N}_])_(?=\S)(?:.*?\S)_(?![\p{L}\p{N}_])/gu, target, "italic", 52);
 
     markFileReferences(line, target);
     markAgentReferences(line, target);
