@@ -64,6 +64,8 @@ Do not delegate the creation or editing of project plans or internal documentati
 
 ### Continuing subagents
 
+Format every continuation’s `task` using the Preferred Subagent Prompt Format below, not an unstructured text block. Keep `# Task` concise, put follow-up context in `## Context`, and specify what to verify or complete in `## Instructions`. Reference retained context rather than repeating the entire original assignment.
+
 Check the automatically returned context statistics before reprompting. Do not reprompt an agent whose reported context occupancy is 180,000 tokens or more; explain the limitation and use a fresh agent with a concise handoff instead. Treat unknown or stale measurements cautiously rather than assuming the agent has ample capacity.
 
 When continuing an agent below that threshold, retain its saved context limit by default by omitting `contextTokenLimit`. If the latest reliable reported context occupancy is at least 65% of its current limit, calculate a proposed limit as 1.5 times that occupancy, round up to the next 10,000 tokens, and cap it at 200,000 tokens. Pass the proposed value as `contextTokenLimit` only if it exceeds the current limit; never reduce an existing limit. Unknown or stale measurements do not automatically justify an increase. This is recommended guidance, not an enforced limit or a change to the extension's default. Any override persists for later continuations, and the extension automatically informs the resumed agent of its effective limit and current occupancy.
