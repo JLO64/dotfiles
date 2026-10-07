@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   isCustomWord,
+  isSpellcheckLibraryLoaded,
   maskSpellcheckLine,
   maskUnfinishedTrailingWord,
   SPELLCHECK_DEBOUNCE_MS,
@@ -15,6 +16,14 @@ async function scan(service: SpellcheckService, lines: string[]): Promise<void> 
 }
 
 describe("spellcheck filtering", () => {
+  test("defers loading cspell until the first scan", async () => {
+    expect(isSpellcheckLibraryLoaded()).toBe(false);
+    const service = new SpellcheckService(join(tmpdir(), "pi-vim-spellcheck-unused"));
+    await service.start();
+    expect(isSpellcheckLibraryLoaded()).toBe(false);
+    service.dispose();
+  });
+
   test("preserves UTF-16 offsets while masking Markdown and technical tokens", () => {
     const line = "prose `codde` https://example.dev @README.md --flag hash123 😀 typo";
     const masked = maskSpellcheckLine(line, [{ start: 6, end: 13, style: "code" }]);

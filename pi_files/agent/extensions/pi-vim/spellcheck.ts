@@ -1,4 +1,3 @@
-import { checkTextDocument, getDefaultBundledSettingsAsync } from "cspell-lib";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getMarkdownHighlightSpans } from "./markdown-highlighting.js";
@@ -22,17 +21,38 @@ function debugSpellcheck(event: string, details?: unknown): void {
   console.debug("[pi-vim spellcheck]", event, details ?? "");
 }
 
-// Load bundled dictionaries once at module initialization, outside input handlers.
-const bundledSettingsPromise = getDefaultBundledSettingsAsync().then(
-  (settings) => {
-    debugSpellcheck("bundled dictionaries initialized");
-    return settings;
-  },
-  (error: unknown) => {
+// Defer loading cspell and its bundled dictionaries until an actual scan is needed.
+let spellcheckLibraryPromise: Promise<typeof import("cspell-lib") | undefined> | null = null;
+let bundledSettingsPromise: Promise<import("cspell-lib").CSpellUserSettings | undefined> | null = null;
+function getSpellcheckLibrary(): Promise<typeof import("cspell-lib") | undefined> {
+  spellcheckLibraryPromise ??= import("cspell-lib").catch((error: unknown) => {
+    debugSpellcheck("cspell loading failed", error);
+    return undefined;
+  });
+  return spellcheckLibraryPromise;
+}
+export function isSpellcheckLibraryLoaded(): boolean {
+  return spellcheckLibraryPromise !== null;
+}
+
+function getBundledSettings(): Promise<import("cspell-lib").CSpellUserSettings | undefined> {
+  bundledSettingsPromise ??= getSpellcheckLibrary().then((library) =>
+    library?.getDefaultBundledSettingsAsync().then(
+      (settings) => {
+        debugSpellcheck("bundled dictionaries initialized");
+        return settings;
+      },
+      (error: unknown) => {
+        debugSpellcheck("bundled dictionary initialization failed", error);
+        return undefined;
+      },
+    ),
+  ).catch((error: unknown) => {
     debugSpellcheck("bundled dictionary initialization failed", error);
     return undefined;
-  },
-);
+  });
+  return bundledSettingsPromise;
+}
 
 export function isCustomWord(value: string): boolean {
   return /^\p{L}[\p{L}'’-]*$/u.test(value) && value.length > 1;
@@ -135,8 +155,8 @@ export class SpellcheckService {
     const markdown = getMarkdownHighlightSpans(lines);
     const spans: SpellSpan[] = [];
     try {
-      const bundledSettings = await bundledSettingsPromise;
-      if (!bundledSettings) return;
+      const [library, bundledSettings] = await Promise.all([getSpellcheckLibrary(), getBundledSettings()]);
+      if (!library || !bundledSettings) return;
       // Personal words are read after asynchronous initialization so additions remain live.
       const settings = {
         ...bundledSettings,
@@ -148,7 +168,7 @@ export class SpellcheckService {
         const raw = lines[lineIndex] ?? "";
         const masked = maskSpellcheckLine(raw, markdown[lineIndex] ?? []);
         const text = maskUnfinishedTrailingWord(masked);
-        const result = await checkTextDocument(
+        const result = await library.checkTextDocument(
           { uri: "untitled:pi-vim", text, languageId: "plaintext", locale: "en" },
           { noConfigSearch: true },
           settings,

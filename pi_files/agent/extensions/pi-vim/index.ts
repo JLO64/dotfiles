@@ -87,6 +87,7 @@ import {
 import { extractPiQuestions, stripPiQuestionsBlock } from "./pi-questions.js";
 import { createAgentAndSkillAutocompleteProvider } from "./autocomplete.js";
 import { SpellcheckService, type SpellSpan } from "./spellcheck.js";
+import { isInteractivePromptHistoryInput, PromptHistoryService } from "./prompt-history.js";
 import { type TranscriptMode } from "./transcript-mode-badge.js";
 import { getFooterLayout, getStreamingIcon, renderFooterDivider, setFooterCellState, STREAMING_FRAME_INTERVAL_MS } from "./footer-layout.js";
 import registerFooter from "./footer.js";
@@ -200,6 +201,12 @@ export class ModalEditor extends CustomEditor {
   private readonly labelColorizers: ModeColorizers | null;
   private readonly borderColorizers: ModeColorizers | null;
   private readonly historyService: ZshHistoryService | null;
+  private readonly promptHistory?: PromptHistoryService;
+  private promptHistoryIndex = -1;
+  private promptHistoryDraft: { text: string; cursor: { line: number; col: number } } | null = null;
+  private applyingPromptHistory = false;
+  private pendingPromptHistoryKeys: string[] = [];
+  private pendingPromptHistorySnapshot: { text: string; cursor: { line: number; col: number } } | null = null;
   private readonly syntaxTheme: any;
   private hardwareCursorEnabled: boolean = false;
   private cursorShapeSent: string | null = null;
@@ -227,11 +234,13 @@ export class ModalEditor extends CustomEditor {
     private readonly getTranscriptMode?: () => TranscriptMode,
     syntaxTheme?: any,
     private readonly spellcheck?: SpellcheckService,
+    promptHistory?: PromptHistoryService,
   ) {
     super(tui, theme, kb);
     this.labelColorizers = labelColorizers ?? null;
     this.borderColorizers = borderColorizers ?? null;
     this.historyService = historyService ?? null;
+    this.promptHistory = promptHistory;
     this.syntaxTheme = syntaxTheme ?? theme;
     this.historyService?.setOnUpdate(() => this.requestRender());
   }
@@ -395,6 +404,10 @@ export class ModalEditor extends CustomEditor {
 
     editor.onChange = (text: string) => {
       originalOnChange?.(text);
+      if (!this.applyingPromptHistory && this.promptHistoryIndex >= 0) {
+        this.promptHistoryIndex = -1;
+        this.promptHistoryDraft = null;
+      }
       this.centralInvalidationCheck();
       this.spellcheck?.schedule(this.getLines());
     };
@@ -597,6 +610,8 @@ export class ModalEditor extends CustomEditor {
       return this.handleEscape();
     }
 
+    if ((this.mode === "insert" || this.mode === "normal") && this.handlePromptHistoryInput(data)) return;
+
     if (this.mode === "insert") {
       if (matchesKey(data, "tab")) {
         if (this.isShowingAutocomplete()) {
@@ -734,6 +749,93 @@ export class ModalEditor extends CustomEditor {
       this.mode = "normal";
     } else {
       super.handleInput("\x1b"); // pass escape to abort agent
+    }
+  }
+
+  private handlePromptHistoryInput(data: string): boolean {
+    if (!this.promptHistory || this.isShowingAutocomplete()) return false;
+    const editor = this as unknown as {
+      keybindings?: { matches: (data: string, key: string) => boolean };
+      isOnFirstVisualLine?: () => boolean;
+      isOnLastVisualLine?: () => boolean;
+      isEditorEmpty?: () => boolean;
+    };
+    const keybindings = editor.keybindings;
+    if (!keybindings) return false;
+    const previous = keybindings.matches(data, "tui.editor.historyPrevious");
+    const next = keybindings.matches(data, "tui.editor.historyNext");
+    const up = keybindings.matches(data, "tui.editor.cursorUp");
+    const down = keybindings.matches(data, "tui.editor.cursorDown");
+    const atFirstVisualLine = editor.isOnFirstVisualLine?.() ?? false;
+    const atLastVisualLine = editor.isOnLastVisualLine?.() ?? false;
+    const cursor = this.getCursor();
+    const entries = this.promptHistory.getEntries();
+    const shouldPrevious = previous || (up && atFirstVisualLine && (
+      editor.isEditorEmpty?.() || this.promptHistoryIndex >= 0 || cursor.col === 0
+      || (this.mode === "normal" && this.getLines().length === 1)
+    ));
+    const shouldNext = next || (down && this.promptHistoryIndex >= 0 && atLastVisualLine);
+
+    if (entries.length === 0) {
+      if ((shouldPrevious || shouldNext) && !this.promptHistory.isReady()) {
+        if (this.pendingPromptHistoryKeys.length === 0) {
+          this.pendingPromptHistorySnapshot = { text: this.getText(), cursor: { ...cursor } };
+        }
+        this.pendingPromptHistoryKeys.push(data);
+        void this.promptHistory.start().then(() => {
+          const snapshot = this.pendingPromptHistorySnapshot;
+          const keys = this.pendingPromptHistoryKeys.splice(0);
+          this.pendingPromptHistorySnapshot = null;
+          if (!snapshot || this.getText() !== snapshot.text || this.getCursor().line !== snapshot.cursor.line || this.getCursor().col !== snapshot.cursor.col) return;
+          for (const key of keys) this.handlePromptHistoryInput(key);
+        });
+        return true;
+      }
+      return false;
+    }
+
+    if (shouldPrevious) {
+      const newIndex = this.promptHistoryIndex + 1;
+      if (newIndex >= entries.length) return true;
+      if (this.promptHistoryIndex === -1) {
+        this.promptHistoryDraft = { text: this.getText(), cursor: { ...cursor } };
+      }
+      this.promptHistoryIndex = newIndex;
+      this.setPromptHistoryText(entries[newIndex]!, "start");
+      return true;
+    }
+    if (shouldNext) {
+      if (this.promptHistoryIndex < 0) return true;
+      this.promptHistoryIndex--;
+      if (this.promptHistoryIndex < 0) {
+        const draft = this.promptHistoryDraft;
+        this.promptHistoryDraft = null;
+        this.setPromptHistoryText(draft?.text ?? "", "draft", draft?.cursor);
+      } else {
+        this.setPromptHistoryText(this.promptHistory.getEntries()[this.promptHistoryIndex]!, "end");
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private setPromptHistoryText(
+    text: string,
+    placement: "start" | "end" | "draft",
+    cursor?: { line: number; col: number },
+  ): void {
+    this.applyingPromptHistory = true;
+    try {
+      this.setText(text);
+      if (placement === "start") this.moveCursorToAbsoluteIndex(0);
+      else if (placement === "draft" && cursor) {
+        const lines = this.getLines();
+        const line = Math.max(0, Math.min(cursor.line, lines.length - 1));
+        const col = Math.max(0, Math.min(cursor.col, lines[line]!.length));
+        this.moveCursorToAbsoluteIndex(this.getAbsoluteIndex(line, col));
+      }
+    } finally {
+      this.applyingPromptHistory = false;
     }
   }
 
@@ -3869,7 +3971,9 @@ export default function (pi: ExtensionAPI) {
     terminal?: { write: (data: string) => void };
   } | null = null;
   let activeEditor: ModalEditor | null = null;
-  const spellcheck = new SpellcheckService(getAgentDir(), () => activeEditor?.requestRender());
+  const agentDir = getAgentDir();
+  const promptHistory = new PromptHistoryService(agentDir);
+  const spellcheck = new SpellcheckService(agentDir, () => activeEditor?.requestRender());
   pi.registerCommand("spell-add", {
     description: "Add a word to pi-vim's spellcheck dictionary",
     handler: async (args, ctx) => {
@@ -3912,6 +4016,7 @@ export default function (pi: ExtensionAPI) {
     // trigger a render flicker on agent start.
     ctx.ui.setWorkingVisible(false);
     historyService.start();
+    void promptHistory.start();
     void spellcheck.start();
     ctx.ui.addAutocompleteProvider?.((current) =>
       createAgentAndSkillAutocompleteProvider(current, ctx.cwd, () => pi.getCommands()),
@@ -3944,6 +4049,7 @@ export default function (pi: ExtensionAPI) {
         () => transcriptMode,
         appTheme,
         spellcheck,
+        promptHistory,
       );
       activeEditor = editor;
       return editor;
@@ -3980,11 +4086,17 @@ export default function (pi: ExtensionAPI) {
     historyService.addPiCommand(event.command);
   });
 
+  pi.on("input", (event, ctx) => {
+    if (!isInteractivePromptHistoryInput(event.source, ctx.mode)) return;
+    void promptHistory.add(event.text);
+  });
+
   pi.on("session_shutdown", (_event, ctx) => {
     removeTranscriptCycleListener?.();
     removeTranscriptModeListener?.();
     transcriptCycle = undefined;
     historyService.dispose();
+    promptHistory.dispose();
     spellcheck.dispose();
     activeEditor?.unlock();
     activeEditor = null;
