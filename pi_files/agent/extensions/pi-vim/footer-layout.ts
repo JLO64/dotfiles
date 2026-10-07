@@ -14,7 +14,9 @@ export type FooterCellLayout = {
 
 export type FooterCellState = {
   mode: string;
+  modeIconOnly?: string;
   transcript: string;
+  transcriptIconOnly?: string;
   borderColorize: (text: string) => string;
 };
 
@@ -36,21 +38,44 @@ export function getFooterCellState(): FooterCellState {
   return cellState;
 }
 
+export function fitFooterDetails(
+  baseline: string,
+  availableWidth: number,
+  reductions: readonly string[],
+): string {
+  let details = baseline;
+  if (visibleWidth(details) <= availableWidth) return details;
+  for (const reduced of reductions) {
+    details = reduced;
+    if (visibleWidth(details) <= availableWidth) break;
+  }
+  return details;
+}
+
+export function getFooterCellContent(terminalWidth: number): [string, string] {
+  const iconOnly = terminalWidth <= 100;
+  return [
+    iconOnly ? cellState.modeIconOnly ?? cellState.mode : cellState.mode,
+    iconOnly ? cellState.transcriptIconOnly ?? cellState.transcript : cellState.transcript,
+  ];
+}
+
 export function measureFooterCells(details: string, terminalWidth: number): FooterCellLayout {
-  const { mode, transcript } = cellState;
+  const [mode, transcript] = getFooterCellContent(terminalWidth);
   const available = Math.max(0, terminalWidth - 4);
-  const desired: [number, number, number] = [
+  const desired: [number, number] = [
     Math.max(visibleWidth(mode) + 2, 1),
-    Math.max(visibleWidth(details), 1),
     Math.max(visibleWidth(transcript) + 2, 1),
   ];
   const widths: [number, number, number] = [0, 0, 0];
   let remaining = available;
-  // Preserve the semantic labels first, then give any remaining room to details.
-  for (const index of [0, 2, 1] as const) {
-    widths[index] = Math.min(desired[index], remaining);
+  // Preserve Mode and Transcript sizing priorities, then give all remaining room to Details.
+  for (const index of [0, 2] as const) {
+    const desiredWidth = index === 0 ? desired[0] : desired[1];
+    widths[index] = Math.min(desiredWidth, remaining);
     remaining -= widths[index];
   }
+  widths[1] = remaining;
   return { widths, totalWidth: widths.reduce((sum, width) => sum + width, 0) + 4 };
 }
 
@@ -59,13 +84,16 @@ export function renderFooterCellRow(
   layout: FooterCellLayout,
   colorize: (text: string) => string,
 ): [string, string] {
-  const pad = (text: string, width: number, label = false) => {
+  const pad = (text: string, width: number, label = false, center = false) => {
     const padded = label && width >= visibleWidth(text) + 2 ? ` ${text} ` : text;
     const clipped = truncateCell(padded, width);
-    return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+    const missing = Math.max(0, width - visibleWidth(clipped));
+    return center
+      ? " ".repeat(Math.floor(missing / 2)) + clipped + " ".repeat(Math.ceil(missing / 2))
+      : clipped + " ".repeat(missing);
   };
   const row = colorize("│") + pad(cells[0], layout.widths[0], true) + colorize("│") +
-    pad(cells[1], layout.widths[1]) + colorize("│") + pad(cells[2], layout.widths[2], true) + colorize("│");
+    pad(cells[1], layout.widths[1], false, true) + colorize("│") + pad(cells[2], layout.widths[2], true) + colorize("│");
   const bottom = colorize(`╰${"─".repeat(layout.widths[0])}┴${"─".repeat(layout.widths[1])}┴${"─".repeat(layout.widths[2])}╯`);
   return [row, bottom];
 }

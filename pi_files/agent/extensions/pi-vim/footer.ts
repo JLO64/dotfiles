@@ -1,8 +1,10 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	clearFooterLayout,
+	fitFooterDetails,
+	getFooterCellContent,
 	getFooterCellState,
 	getStreamingIcon,
 	STREAMING_FRAME_INTERVAL_MS,
@@ -15,7 +17,8 @@ import {
 } from "./footer-layout.js";
 import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
+import { buildFooterDetailsStages, formatCompactDuration, formatContextUsage } from "./footer-details.js";
 import { homedir } from "node:os";
 
 // ─── Streaming state ─────────────────────────────────────────────────────────
@@ -33,10 +36,6 @@ function formatTokens(count: number): string {
 	if (count < 1000000) return `${Math.round(count / 1000)}k`;
 	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
 	return `${Math.round(count / 1000000)}M`;
-}
-
-function formatContextTokens(count: number): string {
-	return count === 0 ? "0" : `${(count / 1000).toFixed(1)}k`;
 }
 
 // ─── Git status ───────────────────────────────────────────────────────────────
@@ -230,12 +229,7 @@ function getResetAt(
 
 function formatResetDuration(resetAt: number): string {
 	const totalMinutes = Math.max(0, Math.ceil((resetAt - Date.now()) / 60000));
-	const days = Math.floor(totalMinutes / 1440);
-	const hours = Math.floor((totalMinutes % 1440) / 60);
-	const minutes = totalMinutes % 60;
-	if (days > 0) return `${days}d ${hours}h`;
-	if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
-	return `${minutes}m`;
+	return formatCompactDuration(totalMinutes);
 }
 
 async function fetchChatGPTPlusUsage(): Promise<ChatGPTPlusUsage | null> {
@@ -474,10 +468,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 					}
 
 					const home = process.env.HOME || process.env.USERPROFILE || "";
-					const isCompact = width < 100;
-					const displayCwd = isCompact
-						? basename(cwd)
-						: truncateDisplayPath(cwd, home);
+					const displayCwd = truncateDisplayPath(cwd, home);
 
 					// Token stats and cost are refreshed on branch/message lifecycle events.
 					const { input: totalInput, output: totalOutput, cost: totalCost } = sessionTotals;
@@ -500,14 +491,7 @@ export default function registerFooter(pi: ExtensionAPI) {
 					// Context usage
 					const contextUsage = ctx.getContextUsage();
 					const contextPercent = contextUsage?.percent ?? 0;
-					const contextTokens = contextUsage?.tokens ?? 0;
-
-					// Model
-					const modelName = shortenModelName(
-						ctx.model?.provider,
-						ctx.model?.id || "no-model",
-						isCompact,
-					);
+					const contextTokens = contextUsage?.tokens;
 
 					// Time
 					const now = new Date();
@@ -545,22 +529,21 @@ export default function registerFooter(pi: ExtensionAPI) {
 					const state = getFooterCellState();
 					const borderColorize = state.borderColorize;
 
-					// Model name
-					let modelPart = borderColorize(" ") + borderColorize(modelName);
-
 					// Stats in parentheses: (4.5%)
 					const inputStr = totalInput > 0 ? `↑${formatTokens(totalInput)}` : "";
 					const outputStr = totalOutput > 0 ? `↓${formatTokens(totalOutput)}` : "";
 
-					let contextStr: string;
-					const formattedContextTokens = formatContextTokens(contextTokens);
-					if (contextPercent > 80) {
-						contextStr = theme.fg("error", formattedContextTokens);
-					} else if (contextPercent > 50) {
-						contextStr = theme.fg("warning", formattedContextTokens);
-					} else {
-						contextStr = formattedContextTokens;
-					}
+					const formattedContextUsage = formatContextUsage(contextTokens, ctx.model?.contextWindow);
+					const contextUsed = formatContextUsage(contextTokens);
+					const colorContext = (value: string | undefined) => value === undefined
+						? undefined
+						: contextPercent > 80
+							? theme.fg("error", value)
+							: contextPercent > 50
+								? theme.fg("warning", value)
+								: value;
+					const contextStr = colorContext(formattedContextUsage);
+					const contextUsedStr = colorContext(contextUsed);
 
 					// Cost display: show ChatGPT Plus percentage for openai-codex
 					let costStr: string;
@@ -595,82 +578,58 @@ export default function registerFooter(pi: ExtensionAPI) {
 							? "Off"
 							: thinkingLevel.charAt(0).toUpperCase() + thinkingLevel.slice(1);
 
-					let statsParts = [thinkingLabel, contextStr, costStr].filter((part, i) => {
-						if (ctx.model?.provider === "lm-studio" && i === 2) return false;
-						return !!part;
-					});
-					let stats =
-						statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
-
-					// Directory
-					let dirPart =
-						borderColorize(" ") +
-						borderColorize(displayCwd) +
-						`(${hostname})`;
-
-					// Git info
-					let gitPart = "";
-					if (cachedGit) {
-						const dirtyStr = cachedGit.dirty > 0 ? `(${cachedGit.dirty})` : "";
-						const trackParts: string[] = [];
-						if (cachedGit.ahead > 0) trackParts.push(`↑${cachedGit.ahead}`);
-						if (cachedGit.behind > 0) trackParts.push(`↓${cachedGit.behind}`);
-						const trackStr =
-							trackParts.length > 0 ? `${trackParts.join("")}` : "";
-						gitPart = ` ${theme.fg("dim", "on")} ${borderColorize("")} ${borderColorize(cachedGit.branch)}${dirtyStr}${trackStr}`;
-					}
-
+					const displayedCost = ctx.model?.provider === "lm-studio" ? undefined : costStr;
 					// Time
-					const timePart = isCompact
-						? ""
-						: borderColorize("󰥔 ") + borderColorize(timeStr) + elapsedStr;
-
-					let line =
-						modelPart +
-						stats +
-						theme.fg("dim", " in ") +
-						dirPart +
-						gitPart +
-						(isCompact ? "" : theme.fg("dim", " at ")) +
-						timePart;
-
-					if (visibleWidth(line) >= 120) {
-						modelPart = borderColorize(" ") + borderColorize(shortenModelName(
-							ctx.model?.provider,
-							ctx.model?.id || "no-model",
-							true,
-					));
-						statsParts = [
-							thinkingLabel,
-							contextStr,
-							ctx.model?.provider === "openai-codex" || ctx.model?.provider === "lm-studio" ? "" : costStr,
-						].filter(Boolean);
-						stats = statsParts.length > 0 ? `(${statsParts.join(", ")})` : "";
-						dirPart = borderColorize(" ") + borderColorize(basename(cwd));
-						line =
-							modelPart +
-							stats +
-							theme.fg("dim", " in ") +
-							dirPart +
-							gitPart +
-							(isCompact ? "" : theme.fg("dim", " at ")) +
-							timePart;
-					}
+					const modelName = shortenModelName(ctx.model?.provider, ctx.model?.id || "no-model");
+					const detailsInput = {
+						model: borderColorize(modelName),
+						modelWithoutProvider: borderColorize(shortenModelName(ctx.model?.provider, ctx.model?.id || "no-model", true)),
+						stats: [],
+						reasoningEffort: thinkingLabel,
+						contextUsage: contextStr !== undefined && contextUsedStr !== undefined
+							? { used: contextUsedStr, withMaximum: contextStr }
+							: undefined,
+						cost: displayedCost,
+						path: displayCwd,
+						cwd,
+						hostname,
+						time: borderColorize(timeStr),
+						duration: elapsedStr,
+						git: cachedGit ? { branch: borderColorize(cachedGit.branch), suffix: `${cachedGit.dirty > 0 ? `(${cachedGit.dirty})` : ""}${cachedGit.ahead > 0 ? `↑${cachedGit.ahead}` : ""}${cachedGit.behind > 0 ? `↓${cachedGit.behind}` : ""}` } : undefined,
+						icons: {
+							model: borderColorize(" "),
+							directory: borderColorize(" "),
+							git: borderColorize(""),
+							time: borderColorize("󰥔 "),
+						},
+						colorizeDirectory: borderColorize,
+						connectors: {
+							in: theme.fg("dim", " in "),
+							on: theme.fg("dim", "on"),
+							at: theme.fg("dim", "at"),
+						},
+						commaSeparator: theme.fg("dim", ", "),
+					};
+					const detailStages = buildFooterDetailsStages(detailsInput);
+					const baseline = detailStages[0]!;
 					if (width < 5) {
 						publishFooterLayout(width, { widths: [0, 0, 0], totalWidth: width });
-						return [truncateToWidth(line, width, "")];
+						return [truncateToWidth(baseline, width, "")];
 					}
 
+					const [modeContent, transcriptContent] = getFooterCellContent(width);
 					const mode = streamingState.isStreaming
-						? state.mode.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, getStreamingIcon(Math.floor(Date.now() / STREAMING_FRAME_INTERVAL_MS)))
-						: state.mode;
-					const layout = measureFooterCells(line, width);
+						? modeContent.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u, getStreamingIcon(Math.floor(Date.now() / STREAMING_FRAME_INTERVAL_MS)))
+						: modeContent;
+					const layout = measureFooterCells(baseline, width);
+					const detailsWidth = layout.widths[1];
+					const line = fitFooterDetails(baseline, detailsWidth, detailStages.slice(1));
 					publishFooterLayout(width, layout);
 					const rows = renderFooterCellRow(
 						[
 							mode,
 							line,
-							borderColorize(`\x1b[1m${state.transcript}\x1b[22m`),
+							borderColorize(`\x1b[1m${transcriptContent}\x1b[22m`),
 						],
 						layout,
 						borderColorize,

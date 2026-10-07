@@ -3829,6 +3829,7 @@ export class ModalEditor extends CustomEditor {
       );
     }
     const mode = modeColorize(`\x1b[1m${modeIcon} ${modeLabel}\x1b[22m`);
+    const modeIconOnly = modeColorize(`\x1b[1m${modeIcon}\x1b[22m`);
     const transcriptMode = this.getTranscriptMode?.() ?? "COLLAPSED";
     const transcriptIcons: Record<TranscriptMode, string> = {
       COLLAPSED: "",
@@ -3839,7 +3840,9 @@ export class ModalEditor extends CustomEditor {
     const transcript = `${transcriptIcons[transcriptMode]} ${transcriptLabel}`;
     setFooterCellState({
       mode,
+      modeIconOnly,
       transcript,
+      transcriptIconOnly: transcriptIcons[transcriptMode],
       borderColorize,
     });
   }
