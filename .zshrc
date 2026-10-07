@@ -208,6 +208,9 @@ export PATH="$HOME/.local/bin:$PATH"
 # For bun
 export PATH="/Users/64julianlopez/.bun/bin:$PATH"
 
+# For the devkitPro 3DS toolchain
+export DEVKITARM=/opt/devkitpro/devkitARM
+
 # Path to your Oh My Zsh installation.
 # export ZSH="$HOME/.oh-my-zsh"
 
