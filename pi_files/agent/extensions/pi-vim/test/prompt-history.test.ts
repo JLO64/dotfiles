@@ -14,8 +14,20 @@ afterEach(async () => {
 async function makeHistory(contents?: string): Promise<PromptHistoryService> {
   const directory = await mkdtemp(join(tmpdir(), "pi-vim-prompt-history-"));
   temporaryDirectories.push(directory);
-  const history = new PromptHistoryService(directory);
-  if (contents !== undefined) await writeFile(history.historyFile, contents);
+  const history = new PromptHistoryService(directory, directory);
+  if (contents !== undefined) {
+    await writeFile(history.historyFile, contents);
+    try {
+      const entries: unknown = JSON.parse(contents);
+      if (Array.isArray(entries)) {
+        for (const entry of entries.filter((value): value is string => typeof value === "string").reverse()) {
+          await history.add(entry);
+        }
+      }
+    } catch {
+      // Keep malformed legacy data in place for the invalid-storage test.
+    }
+  }
   await history.start();
   return history;
 }
@@ -108,8 +120,9 @@ describe("persistent prompt history", () => {
   test("queues a first history key until fresh-session storage is ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-vim-prompt-history-fresh-"));
     temporaryDirectories.push(directory);
-    const history = new PromptHistoryService(directory);
-    await writeFile(history.historyFile, JSON.stringify(["fresh session prompt"]));
+    const seeded = new PromptHistoryService(directory, directory);
+    await seeded.add("fresh session prompt");
+    const history = new PromptHistoryService(directory, directory);
     const loading = history.start();
     const editor = makeEditor(history);
 
@@ -137,12 +150,12 @@ describe("persistent prompt history", () => {
   test("loads prompts from prior sessions and writes private storage", async () => {
     const history = await makeHistory(JSON.stringify(["prior session prompt"]));
     await history.add("current prompt");
-    const restored = new PromptHistoryService(dirname(history.historyFile));
+    const restored = new PromptHistoryService(dirname(history.historyFile), dirname(history.historyFile));
     await restored.start();
     expect(restored.getEntries()).toEqual(["current prompt", "prior session prompt"]);
     expect(restored.getEntries()).toEqual(["current prompt", "prior session prompt"]);
     const records = await readdir(restored.historyDirectory);
-    expect(records).toHaveLength(1);
+    expect(records).toHaveLength(2);
     expect((await stat(restored.historyDirectory)).mode & 0o777).toBe(0o700);
     expect((await stat(join(restored.historyDirectory, records[0]!))).mode & 0o777).toBe(0o600);
     const editor = makeEditor(restored);
@@ -150,28 +163,57 @@ describe("persistent prompt history", () => {
     expect(editor.getText()).toBe("current prompt");
   });
 
+  test("isolates histories by normalized working directory and ignores unscoped history", async () => {
+    const agentDirectory = await mkdtemp(join(tmpdir(), "pi-vim-prompt-history-scope-"));
+    temporaryDirectories.push(agentDirectory);
+    await writeFile(join(agentDirectory, "pi-vim-prompt-history.json"), JSON.stringify(["unknown origin"]));
+
+    const first = new PromptHistoryService(agentDirectory, join(agentDirectory, "project", "..", "project"));
+    await first.start();
+    expect(first.getEntries()).toEqual([]);
+    await first.add("project prompt");
+
+    const sameDirectory = new PromptHistoryService(agentDirectory, join(agentDirectory, "project"));
+    const otherDirectory = new PromptHistoryService(agentDirectory, join(agentDirectory, "other"));
+    await Promise.all([sameDirectory.start(), otherDirectory.start()]);
+    expect(sameDirectory.getEntries()).toEqual(["project prompt"]);
+    expect(otherDirectory.getEntries()).toEqual([]);
+  });
+
+  test("retains only the newest 200 prompts per working directory", async () => {
+    const history = await makeHistory();
+    for (let index = 0; index < 205; index++) await history.add(`prompt ${index}`);
+
+    const restored = new PromptHistoryService(dirname(history.historyFile), dirname(history.historyFile));
+    await restored.start();
+    expect(restored.getEntries()).toHaveLength(200);
+    expect(restored.getEntries()[0]).toBe("prompt 204");
+    expect(restored.getEntries()[199]).toBe("prompt 5");
+    expect(await readdir(restored.historyDirectory)).toHaveLength(200);
+  });
+
   test("publishes a submitted prompt before its durable write finishes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-vim-prompt-history-immediate-"));
     temporaryDirectories.push(directory);
-    const history = new PromptHistoryService(directory);
+    const history = new PromptHistoryService(directory, directory);
 
     const persistence = history.add("submitted immediately");
 
     expect(history.getEntries()).toEqual(["submitted immediately"]);
     await persistence;
-    const restored = new PromptHistoryService(directory);
+    const restored = new PromptHistoryService(directory, directory);
     await restored.start();
     expect(restored.getEntries()).toEqual(["submitted immediately"]);
   });
 
   test("preserves prompts written concurrently by separate instances", async () => {
     const first = await makeHistory();
-    const second = new PromptHistoryService(dirname(first.historyFile));
+    const second = new PromptHistoryService(dirname(first.historyFile), dirname(first.historyFile));
     await second.start();
 
     await Promise.all([first.add("from first process"), second.add("from second process")]);
 
-    const restored = new PromptHistoryService(dirname(first.historyFile));
+    const restored = new PromptHistoryService(dirname(first.historyFile), dirname(first.historyFile));
     await restored.start();
     expect(new Set(restored.getEntries())).toEqual(new Set(["from first process", "from second process"]));
   });

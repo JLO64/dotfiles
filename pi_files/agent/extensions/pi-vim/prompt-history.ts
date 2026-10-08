@@ -1,12 +1,13 @@
 import { chmod, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { basename, join, resolve } from "node:path";
 import type { ExtensionMode, InputSource } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_SECRET_PATTERNS } from "./zsh-history.js";
 
-const MAX_ENTRIES = 2_000;
+const MAX_ENTRIES = 200;
 const MAX_ENTRY_LENGTH = 100_000;
 const RECORD_NAME = /^\d{13}-[0-9a-f-]+\.json$/u;
+let lastRecordTimestamp = 0;
 
 export function isInteractivePromptHistoryInput(source: InputSource, mode: ExtensionMode): boolean {
   return source === "interactive" && mode === "tui";
@@ -22,7 +23,7 @@ export function isSafePromptHistoryEntry(entry: string): boolean {
 }
 
 export class PromptHistoryService {
-  /** Legacy snapshot path, retained for reading history written by older versions. */
+  /** Old unscoped snapshot path; retained only to identify storage ignored by this version. */
   readonly historyFile: string;
   readonly historyDirectory: string;
   private entries: string[] = [];
@@ -31,9 +32,11 @@ export class PromptHistoryService {
   private loaded = false;
   private operations: Promise<void> = Promise.resolve();
 
-  constructor(agentDir: string) {
+  constructor(agentDir: string, workingDirectory: string) {
     this.historyFile = join(agentDir, "pi-vim-prompt-history.json");
-    this.historyDirectory = join(agentDir, "pi-vim-prompt-history");
+    const directoryIdentity = resolve(workingDirectory);
+    const namespace = createHash("sha256").update(directoryIdentity).digest("hex");
+    this.historyDirectory = join(agentDir, "pi-vim-prompt-history", namespace);
   }
 
   start(): Promise<void> {
@@ -76,18 +79,7 @@ export class PromptHistoryService {
   }
 
   private async load(): Promise<void> {
-    const legacyEntries: string[] = [];
-    try {
-      const parsed: unknown = JSON.parse(await readFile(this.historyFile, "utf8"));
-      if (Array.isArray(parsed)) {
-        legacyEntries.push(...parsed.filter(
-          (entry): entry is string => typeof entry === "string" && isSafePromptHistoryEntry(entry),
-        ).slice(0, MAX_ENTRIES));
-      }
-    } catch {
-      // Missing or malformed legacy storage is treated as empty.
-    }
-
+    // The old snapshot has no working-directory provenance, so never mix it into scoped history.
     const records: string[] = [];
     try {
       const names = (await readdir(this.historyDirectory))
@@ -109,7 +101,7 @@ export class PromptHistoryService {
     }
 
     const seen = new Set<string>();
-    this.entries = [...this.entries, ...records, ...legacyEntries].filter((entry) => {
+    this.entries = [...this.entries, ...records].filter((entry) => {
       if (seen.has(entry)) return false;
       seen.add(entry);
       return true;
@@ -123,7 +115,8 @@ export class PromptHistoryService {
     await chmod(this.historyDirectory, 0o700);
 
     const directory = this.historyDirectory;
-    const name = `${Date.now().toString().padStart(13, "0")}-${randomUUID()}.json`;
+    lastRecordTimestamp = Math.max(Date.now(), lastRecordTimestamp + 1);
+    const name = `${lastRecordTimestamp.toString().padStart(13, "0")}-${randomUUID()}.json`;
     const target = join(directory, name);
     const temporary = join(directory, `.${basename(target)}.${randomUUID()}.tmp`);
     try {

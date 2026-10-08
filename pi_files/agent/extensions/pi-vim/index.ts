@@ -3975,7 +3975,7 @@ export default function (pi: ExtensionAPI) {
   } | null = null;
   let activeEditor: ModalEditor | null = null;
   const agentDir = getAgentDir();
-  const promptHistory = new PromptHistoryService(agentDir);
+  let promptHistory!: PromptHistoryService;
   const spellcheck = new SpellcheckService(agentDir, () => activeEditor?.requestRender());
   pi.registerCommand("spell-add", {
     description: "Add a word to pi-vim's spellcheck dictionary",
@@ -4014,6 +4014,7 @@ export default function (pi: ExtensionAPI) {
   );
 
   pi.on("session_start", (_event, ctx) => {
+    promptHistory = new PromptHistoryService(agentDir, ctx.cwd);
     // Hide Pi's built-in working loader row so the custom scanner is the
     // only visible working indicator; do this before any setup that could
     // trigger a render flicker on agent start.
